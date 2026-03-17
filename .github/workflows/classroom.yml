@@ -40,7 +40,7 @@ jobs:
       uses: classroom-resources/autograding-command-grader@v1
       with:
         test-name: Run python v1/main.py --help
-        setup-command: ''
+        setup-command: 'python3 -m venv .venv && if [ -f v1/requirements.txt ]; then .venv/bin/pip install -r v1/requirements.txt; fi'
         command: 'python3 v1/main.py --help'
         timeout: 10
         max-score: 40
