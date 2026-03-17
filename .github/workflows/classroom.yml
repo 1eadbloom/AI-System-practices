@@ -10,7 +10,10 @@ permissions:
 jobs:
   run-autograding-tests:
     runs-on: self-hosted
+    container:
+      image: python:3.10-slim
     if: github.actor != 'github-classroom[bot]'
+    
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -40,8 +43,8 @@ jobs:
       uses: classroom-resources/autograding-command-grader@v1
       with:
         test-name: Run python v1/main.py --help
-        setup-command: 'python3 -m venv .venv && if [ -f v1/requirements.txt ]; then .venv/bin/pip install -r v1/requirements.txt; fi'
-        command: 'python3 v1/main.py --help'
+        setup-command: 'if [ -f v1/requirements.txt ]; then pip install -r v1/requirements.txt; fi'
+        command: 'python v1/main.py --help'
         timeout: 10
         max-score: 40
 
