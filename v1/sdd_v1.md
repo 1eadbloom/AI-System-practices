@@ -149,3 +149,8 @@ storage.py	資料存取抽象層（讀寫 JSON）	以 class 封裝，未來可�
 models.py	資料模型定義（dataclass）	統一資料結構，便於序列化與驗證
 utils.py	格式化輸出、趨勢分析演算法	獨立於業務邏輯，可單獨測試與替換
 
+
+### 修正決策：從 Click 轉向 Argparse (v1.0 穩定性優化)
+在 v1.0 實作過程中，為了確保程式在不同 CI 環境（如 GitHub Actions）中的 **「零依賴啟動 (Zero-dependency bootstrap)」**，我們將 CLI 框架從 `click` 調整為 Python 內建的 `argparse`。
+- **優點**：即使環境尚未執行 `pip install`，系統仍可正確回應 `--help` 與 `--version`。
+- **架構保護**：透過 **Lazy Import (延遲匯入)** 技術，我們將 `commands` 的載入推遲到指令執行階段，這使得 CLI 的介面解析與業務邏輯完全解耦，這項改動顯著提升了系統的強健性（Robustness）。
