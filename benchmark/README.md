@@ -29,3 +29,37 @@ python benchmark/run_benchmark.py --corpus corpus_large.jsonl --queries queries_
 2. **distractor 稀釋**：語料變大後，常見詞被許多文件共享，正確記憶的排序被雜訊文件擠下，Recall 反而下降。
 
 這兩點正是 lexical 檢索（BM25）的天花板，也是任務二導入 hybrid retrieval（BM25 + 本地 embedding）想要改善的目標。建議流程：先用大語料跑出純 BM25 的數字 → 找出哪些題接不到、為什麼 → 做 hybrid → 回來再跑一次，觀察是否提升，並把分析寫進 REPORT。
+
+## 實測結果（基準語料，k=5）
+
+### 純 BM25
+
+| 指標 | 分數 | 參考基準 |
+|---|---|---|
+| Recall@5 | 0.810 | ≈ 0.810 ✅ |
+| MRR | 0.810 | ≈ 0.810 ✅ |
+| nDCG@5 | 0.802 | ≈ 0.802 ✅ |
+
+### Hybrid BM25 + Embedding（RRF，`sentence-transformers/all-MiniLM-L6-v2`）
+
+| 指標 | 純 BM25 | Hybrid | 差異 |
+|---|---|---|---|
+| Recall@5 | 0.810 | 0.810 | = 持平 |
+| MRR | 0.810 | 0.786 | ↓ −0.024 |
+| nDCG@5 | 0.802 | 0.788 | ↓ −0.014 |
+
+**說明：** Recall@5 持平——正確答案仍找得到；MRR / nDCG 微降是因為 RRF 融合偶爾把正確答案從第 1 名推到第 2–3 名。此現象在小型、詞彙重疊度高的語料（30 筆）上屬正常，原因是 BM25 在這類語料已達上限，加入 embedding 引入微小噪訊。Hybrid 的優勢預期在大語料（100 筆 / 40 題）的 vocabulary mismatch 與跨語言題上顯現。
+
+執行指令：
+
+```bash
+# 純 BM25（預設）
+python benchmark/run_benchmark.py --k 5
+
+# Hybrid
+python benchmark/run_benchmark.py --hybrid --k 5
+
+# Hybrid（需離線快取模型）
+set HF_HUB_OFFLINE=1
+python benchmark/run_benchmark.py --hybrid --k 5
+```

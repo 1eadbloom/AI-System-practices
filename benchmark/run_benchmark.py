@@ -6,11 +6,16 @@
 與標準答案（relevant_ids）比對，算出 Recall@k、MRR、nDCG@k。
 
 用法：
-    python benchmark/run_benchmark.py            # 預設 k=5
+    python benchmark/run_benchmark.py            # 預設 k=5，純 BM25
     python benchmark/run_benchmark.py --k 3
     python benchmark/run_benchmark.py --k 5 --per-query   # 顯示每題細節
+    python benchmark/run_benchmark.py --hybrid            # Hybrid BM25+Embedding
+    python benchmark/run_benchmark.py --hybrid --k 5 --per-query
 
-這支程式碼不評分，是給你自己迭代用的：改進 BM25 或加上混合排序（任務二）後，
+或用環境變數：
+    MEMORY_HYBRID=1 python benchmark/run_benchmark.py
+
+改進 BM25 或加上混合排序（任務二）後，
 回來跑一次，看分數有沒有變好。Verifiability Mindset 的實際練習。
 """
 from __future__ import annotations
@@ -49,8 +54,14 @@ def main():
                     help="語料檔名（預設 corpus.jsonl；大語料用 corpus_large.jsonl）")
     ap.add_argument("--queries", default="queries.jsonl",
                     help="查詢檔名（預設 queries.jsonl；大語料用 queries_large.jsonl）")
+    ap.add_argument("--hybrid", action="store_true",
+                    help="啟用 Hybrid BM25+Embedding 模式（需安裝 sentence-transformers）。"
+                         "亦可用 MEMORY_HYBRID=1 環境變數觸發。")
     args = ap.parse_args()
     k = args.k
+
+    # 環境變數也可觸發 hybrid 模式
+    use_hybrid = args.hybrid or os.environ.get("MEMORY_HYBRID", "").strip() == "1"
 
     # 用一個暫存記憶檔，避免污染你平常的記憶
     tmp = tempfile.NamedTemporaryFile(suffix=".json", delete=False)
@@ -72,11 +83,31 @@ def main():
         obs["id"] = row["id"]
         capture(obs)
 
+    # --- 決定要用哪個檢索函式 ---
+    if use_hybrid:
+        from memory.store import JsonStore
+        from memory.hybrid import hybrid_search
+
+        store = JsonStore(tmp.name)
+
+        def _retrieve(query, k):
+            all_obs = store.all()
+            docs = [{"id": o["id"], "text": " ".join([o["summary"], *o.get("tags", [])])}
+                    for o in all_obs]
+            ranked = hybrid_search(query, docs, k)
+            by_id = {o["id"]: o for o in all_obs}
+            return [by_id[r["id"]] for r in ranked if r["id"] in by_id]
+
+        mode_label = "Hybrid BM25+Embedding (RRF)"
+    else:
+        _retrieve = retrieve
+        mode_label = "Pure BM25"
+
     recalls, rrs, ndcgs = [], [], []
     rows = []
     for q in queries:
         relevant = set(q["relevant_ids"])
-        hits = retrieve(q["query"], k)
+        hits = _retrieve(q["query"], k)
         ranked_ids = [h["id"] for h in hits]
 
         hit_set = set(ranked_ids) & relevant
@@ -95,7 +126,7 @@ def main():
     def avg(xs):
         return sum(xs) / len(xs) if xs else 0.0
 
-    print(f"\n=== Memory Retrieval Benchmark (k={k}, {len(queries)} queries) ===\n")
+    print(f"\n=== Memory Retrieval Benchmark (k={k}, {len(queries)} queries, mode={mode_label}) ===\n")
     if args.per_query:
         for query, got, rel, rc, rr, nd in rows:
             mark = "✓" if rc > 0 else "✗"

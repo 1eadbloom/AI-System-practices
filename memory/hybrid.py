@@ -16,15 +16,34 @@ from .bm25 import bm25_search
 _model = None
 _MODEL_NAME = os.environ.get("MEMORY_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 
+# If the model path is a local directory or file, set HF_HUB_OFFLINE automatically.
+# Users can also set HF_HUB_OFFLINE=1 manually to force offline mode.
+if os.path.exists(_MODEL_NAME):
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
 
 def _get_model():
+    """Load the sentence-transformer model.
+
+    Resolution order:
+    1. Already loaded → return cached instance.
+    2. MEMORY_EMBED_MODEL points to a local path → load directly (offline).
+    3. HF_HUB_OFFLINE=1 is set → attempt to load from HF local cache only.
+    4. Otherwise → try to download from HuggingFace Hub.
+    5. Any failure (ImportError, network error, missing cache) → return False
+       so the caller falls back to pure BM25.
+    """
     global _model
-    if _model is None:
-        try:
-            from sentence_transformers import SentenceTransformer
-            _model = SentenceTransformer(_MODEL_NAME)
-        except ImportError:
-            _model = False  # sentinel: unavailable
+    if _model is not None:
+        return _model
+    try:
+        from sentence_transformers import SentenceTransformer
+        _model = SentenceTransformer(_MODEL_NAME)
+    except ImportError:
+        _model = False  # sentence-transformers not installed
+    except Exception:
+        # Covers: network errors, missing offline cache, OSError, RuntimeError, etc.
+        _model = False
     return _model
 
 

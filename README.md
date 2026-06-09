@@ -56,6 +56,16 @@ python benchmark/run_benchmark.py --corpus benchmark/corpus_large.jsonl \
 
 Matches the reference baseline exactly.
 
+### Hybrid Results (baseline corpus, k=5)
+
+| Metric | Pure BM25 | Hybrid | Δ |
+|---|---|---|---|
+| Recall@5 | 0.810 | 0.810 | = |
+| MRR | 0.810 | 0.786 | ↓ −0.024 |
+| nDCG@5 | 0.802 | 0.788 | ↓ −0.014 |
+
+Recall is identical (the correct answers are still found); MRR/nDCG dip slightly because RRF occasionally shifts the correct answer from rank 1 to rank 2–3 on this small, lexically-friendly corpus. Hybrid's advantage over pure BM25 is expected to show on the larger corpus where vocabulary mismatch and cross-language queries appear.
+
 ## Connecting to Pi
 
 ```bash
@@ -77,10 +87,39 @@ results = hybrid_search(query, docs, k=8)
 
 Or set `MEMORY_HYBRID=1` when running the benchmark (see `benchmark/run_benchmark.py`).
 
-The embedding model is downloaded from Hugging Face on first use (~90MB). For fully offline use, pre-cache it:
+The embedding model is downloaded from Hugging Face on first use (~90MB).
+
+### Offline / No-Internet Setup
+
+If your machine cannot reach HuggingFace (e.g. `getaddrinfo failed`), use **one** of:
+
+**Option A — use the HF local cache (model was downloaded before)**
+```bash
+# Windows
+set HF_HUB_OFFLINE=1
+python benchmark/run_benchmark.py --hybrid --k 5
+
+# macOS / Linux
+HF_HUB_OFFLINE=1 python benchmark/run_benchmark.py --hybrid --k 5
+```
+
+**Option B — point directly to a local model folder**
+```bash
+# Windows
+set MEMORY_EMBED_MODEL=C:\path\to\all-MiniLM-L6-v2
+python benchmark/run_benchmark.py --hybrid --k 5
+
+# macOS / Linux
+MEMORY_EMBED_MODEL=/path/to/all-MiniLM-L6-v2 python benchmark/run_benchmark.py --hybrid --k 5
+```
+
+**Option C — pre-cache on a machine with internet, then copy**
 ```bash
 python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
+# Then copy ~/.cache/huggingface/hub/ to the offline machine.
 ```
+
+If the model cannot be loaded for any reason, hybrid search **automatically falls back to pure BM25** — it will not crash.
 
 ## Demo
 

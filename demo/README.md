@@ -5,8 +5,39 @@
 1. session A：告訴 agent 一個慣例（例如「這專案用 pnpm」），agent 呼叫 remember 記下。
 2. 關閉 agent，重開 session B：問相關問題，agent 透過注入的記憶「記得」了，不再反問。
 
-影片連結（GitHub 不適合放大影片，請貼外部連結）：
-- 
+## 影片連結（GitHub 不適合放大影片，請貼外部連結）：
 
-或截圖（放在本資料夾）：
-- 
+## 或截圖（放在本資料夾）：
+
+\## Demo 截圖
+
+
+
+\### pytest 全綠
+
+!\[pytest](pytest.png)
+
+
+
+\### Benchmark 分數
+
+!\[benchmark](benchmark.png)
+
+
+
+\### Benchmark 分數\_hybrid
+
+!\[benchmark\_hybrid](benchmark\_hybrid.png)
+
+
+
+\### 輸入記憶
+
+!\[memory\_input](memory\_input.png)
+
+
+
+\### 呼叫記憶
+
+!\[memory\_recall](memory\_recall.png)
+
