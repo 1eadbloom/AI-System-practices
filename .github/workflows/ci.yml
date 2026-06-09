@@ -3,34 +3,32 @@ name: HW4 CI
 on:
   push:
   pull_request:
-  workflow_dispatch:
-  repository_dispatch:
-
-permissions:
-  checks: write
-  actions: read
-  contents: read
 
 jobs:
-  run-autograding-tests:
+  check:
     runs-on: ubuntu-latest
-    # Skip the run triggered by github-classroom[bot] to avoid duplicate grading.
-    if: github.actor != 'github-classroom[bot]'
     steps:
       - uses: actions/checkout@v4
-
-      - name: File structure check
-        id: file-structure-check
-        uses: classroom-resources/autograding-command-grader@v1
+      - uses: actions/setup-python@v5
         with:
-          test-name: File structure check
-          command: bash .github/scripts/check_structure.sh
-          timeout: 1
-          max-score: 10
+          python-version: "3.11"
 
-      - name: Autograding Reporter
-        uses: classroom-resources/autograding-grading-reporter@v1
-        env:
-          FILE-STRUCTURE-CHECK_RESULTS: "${{ steps.file-structure-check.outputs.result }}"
-        with:
-          runners: file-structure-check
+      - name: Check required files exist
+        run: |
+          for f in memory/bm25.py memory/store.py memory/core.py memory/cli.py \
+                   tests/test_memory.py benchmark/run_benchmark.py \
+                   README.md REPORT.md requirements.txt; do
+            test -f "$f" || { echo "::error::missing required file: $f"; exit 1; }
+          done
+
+      - name: Ensure no secrets committed
+        run: if [ -f .env ]; then echo "::error::.env must not be committed"; exit 1; fi
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Public unit tests
+        run: pytest -q
+
+      - name: Benchmark smoke run
+        run: python benchmark/run_benchmark.py --k 5

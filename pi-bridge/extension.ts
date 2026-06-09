@@ -24,9 +24,13 @@ function callMemory(args: string[]): string {
     cwd: REPO_ROOT,
     env: { ...process.env, PYTHONPATH: REPO_ROOT },
   });
-  if (r.status !== 0) {
-    return ""; // 失敗時不注入，避免中斷 agent
-  }
+if (r.error) {
+  return JSON.stringify({
+    error: r.error.message,
+    cwd: REPO_ROOT,
+    py: PY,
+  });
+}
   return (r.stdout ?? "").trim();
 }
 

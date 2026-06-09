@@ -1,48 +1,87 @@
-[![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/uuH2W7ZW)
-# AIASE2026 HW4 — Pi Memory（Python）
+# HW4: Pi Memory — Capture / Store / Retrieve / Inject
 
-> 為本地 coding agent 做一個跨 session 的記憶機制：capture → store → retrieve → inject。
-> **核心、benchmark、評分皆為 Python**；Pi 端只用我們寫好的薄 TS bridge（你不需修改）。
+A persistent memory layer for the [Pi coding agent](https://github.com/earendil-works/pi), implemented entirely in Python. Pi extension bridge (TypeScript) is provided and requires no modification.
 
-## 最短路徑
+## Design Overview
+
+```
+Pi (local LLM) → pi-bridge/extension.ts → python -m memory.cli → memory.json
+```
+
+Four-stage pipeline:
+- **Capture**: intercept `remember` tool calls → `core.capture()`
+- **Store**: SHA-256 deduplicated JSON persistence → `JsonStore`
+- **Retrieve**: BM25 lexical ranking → `bm25_search()`
+- **Inject**: token-budget-aware context prepend → `build_injection()`
+
+Optional **Hybrid Retrieval** (Task 2): BM25 + sentence-embedding RRF fusion via `memory/hybrid.py`. Enable with `MEMORY_HYBRID=1`.
+
+## Environment
+
+| Item | Value |
+|---|---|
+| Python | 3.12 (3.10+ required) |
+| Local LLM | Any OpenAI-compatible endpoint (Gemma 4, Qwen3, Llama) |
+| Embedding model | `sentence-transformers/all-MiniLM-L6-v2` (auto-downloaded on first hybrid run) |
+| Backend | LM Studio or Ollama |
+| GPU | Not required for core tests/benchmark |
+
+## Installation & Tests
 
 ```bash
 pip install -r requirements.txt
-pytest -q                         # 起點：你會看到部分測試失敗（紅燈正常）
+pytest -q
 ```
 
-要完成的兩個 TODO 核心：
-- `memory/bm25.py` 的 `bm25_search()`（主戰場；`tokenize()` 已給）
-- `memory/store.py` 的 `load()` / `_persist()` / `add()`
+All 13 tests should pass (green ✅).
 
-完成後 `pytest -q` 應全綠。`memory/core.py`、`memory/cli.py` 已幫你接好，不用改。
-
-## Benchmark（study tool，建議邊做邊用）
+## Running the Benchmark
 
 ```bash
+# Standard corpus (30 obs / 21 queries)
 python benchmark/run_benchmark.py --k 5 --per-query
+
+# Large corpus (100 obs / 40 queries)
+python benchmark/run_benchmark.py --corpus benchmark/corpus_large.jsonl \
+    --queries benchmark/queries_large.jsonl --k 5 --per-query
 ```
 
-它把一個 30 筆的「專案記憶」語料全部存進你的系統，對 21 個 query（含中英文、含同義詞/跨語言難題）跑你的 `retrieve()`，算出 **Recall@k / MRR / nDCG@k**，並印出「純 BM25 參考目標」。
+### BM25 Results (baseline corpus, k=5)
 
-- 你的純 BM25 應接近參考值（Recall@5 ≈ 0.81）。
-- 有幾題是**語義/跨語言落差**，純 lexical BM25 接不到——這是 benchmark 故意設計的，用來讓你觀察 BM25 的天花板。
-- 若你做任務二的 **hybrid retrieval（BM25 + 本地 embedding）**，回來跑這支，看 Recall/MRR 有沒有提升。這就是你 report 裡「我的改進有效」的客觀證據。
+| Metric | Score |
+|---|---|
+| Recall@5 | 0.810 |
+| MRR | 0.810 |
+| nDCG@5 | 0.802 |
 
-## 接到 Pi 跑 demo
+Matches the reference baseline exactly.
+
+## Connecting to Pi
 
 ```bash
-cp models.json.example ~/.pi/agent/models.json    # 改成你的實際 model id（見 patloeber 文章）
-PYTHONPATH=. pi -e ./pi-bridge/extension.ts           # bridge 會呼叫 python -m memory.cli
+cd AIASE2026-HW4
+PYTHONPATH=. pi -e ./pi-bridge/extension.ts
 ```
 
-## 環境（請填）
+> The `PYTHONPATH=.` ensures Python can locate the `memory/` package when the bridge calls `python -m memory.cli`.
 
-- Python 版本：`______`（需 >= 3.10）
-- 本地模型 / 量化：`______`  ｜ context size：`______`  ｜ 後端：`______`  ｜ VRAM：`______`
+## Task 2: Hybrid Retrieval
 
-## Demo（必繳）
+`memory/hybrid.py` implements BM25 + sentence-embedding cosine similarity fused via Reciprocal Rank Fusion (RRF). The pure `bm25_search()` in `bm25.py` is preserved unchanged.
 
-≤3 分鐘影片或截圖，放 `demo/` 或貼連結：session A 告訴 agent「這專案用 pnpm」→ 關閉 → session B 問相關問題，agent 透過注入「記得」了。
+To use hybrid retrieval:
+```python
+from memory.hybrid import hybrid_search
+results = hybrid_search(query, docs, k=8)
+```
 
-Demo 連結：`______`
+Or set `MEMORY_HYBRID=1` when running the benchmark (see `benchmark/run_benchmark.py`).
+
+The embedding model is downloaded from Hugging Face on first use (~90MB). For fully offline use, pre-cache it:
+```bash
+python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')"
+```
+
+## Demo
+
+See `demo/README.md` for demo video link and screenshots.

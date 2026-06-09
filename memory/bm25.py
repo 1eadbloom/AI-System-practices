@@ -21,19 +21,46 @@ def bm25_search(
     b: float = 0.75,
 ) -> list[dict]:
     """
-    TODO（主戰場）：實作標準 BM25 排序。
+    實作標準 BM25 排序。
     docs = [{"id": str, "text": str}, ...]；回傳 [{"id", "score"}, ...]（高到低，前 k 筆）。
 
       score(q,d) = Σ_qi IDF(qi) * (tf*(k1+1)) / (tf + k1*(1 - b + b*|d|/avgdl))
       IDF(qi)    = ln( (N - n + 0.5)/(n + 0.5) + 1 )
-      tf = qi 在 d 出現次數 | |d| = d 詞數 | avgdl = 平均詞數 | N = 文件數 | n = 含 qi 的文件數
-
-    步驟：
-      1) 用 tokenize() 斷詞，記每篇長度，算 avgdl
-      2) 算每個詞的 document frequency（df）
-      3) 對每篇文件，加總查詢每個詞的 BM25 貢獻
-      4) 依分數高到低排序（同分保持原始順序），回傳前 k 筆
-
-    建議先用 tests/ 裡的 pnpm 三筆範例手動驗證（D1/D3 應勝 D2），再接 Pi / 跑 benchmark。
     """
-    raise NotImplementedError("bm25_search not implemented yet")
+    if not docs:
+        return []
+
+    # 1) Tokenize all documents and the query
+    N = len(docs)
+    tokenized_docs = [tokenize(d["text"]) for d in docs]
+    query_tokens = tokenize(query)
+
+    # Compute document lengths and avgdl
+    doc_lengths = [len(tokens) for tokens in tokenized_docs]
+    avgdl = sum(doc_lengths) / N if N > 0 else 1.0
+
+    # 2) Compute document frequency (df) for each unique query term
+    df: dict[str, int] = {}
+    for token in set(query_tokens):
+        df[token] = sum(1 for tokens in tokenized_docs if token in tokens)
+
+    # 3) Score each document
+    results = []
+    for i, (doc, tokens) in enumerate(zip(docs, tokenized_docs)):
+        tf_counts = Counter(tokens)
+        dl = doc_lengths[i]
+        score = 0.0
+        for qi in query_tokens:
+            tf = tf_counts.get(qi, 0)
+            if tf == 0:
+                continue
+            n = df.get(qi, 0)
+            idf = math.log((N - n + 0.5) / (n + 0.5) + 1)
+            numerator = tf * (k1 + 1)
+            denominator = tf + k1 * (1 - b + b * dl / avgdl)
+            score += idf * (numerator / denominator)
+        results.append({"id": doc["id"], "score": score})
+
+    # 4) Sort by score descending; stable sort preserves original order on ties
+    results.sort(key=lambda x: x["score"], reverse=True)
+    return results[:k]
