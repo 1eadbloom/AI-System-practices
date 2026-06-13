@@ -87,3 +87,9 @@ The validator supports:
 - `task_id` must match input exactly.
 
 
+
+## Verification
+
+`scripts/validate.py` is a fully deterministic JSON Schema draft-07 subset validator (pure stdlib). Given the same `schema` and `instance`, it always produces the same `valid` boolean and `errors` list. The grader compares `valid`, `error_count`, and each error's `path`+`rule` against ground truth.
+
+`scripts/run.py` enforces the output contract shape: `valid=true` requires `errors=[]` and `error_count=0`; if `valid=true` but `errors` is non-empty, `run.py` overrides `valid` to `false`. The last fenced JSON block in stdout is the grader's input.

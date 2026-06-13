@@ -1,0 +1,18 @@
+ PAIRWISE_ROLE.md                                     |  63 [32m+++++++++++[m[31m---[m
+ report.md                                            | 110 [32m+++++++++++++++[m[31m---------[m
+ run_dev.py                                           |  54 [32m+++++++++[m[31m---[m
+ skills/bug-hunter-GITHUBID/SKILL.md                  |  57 [31m-------------[m
+ skills/bug-hunter-GITHUBID/scripts/analyze.py        | 188 [31m-----------------------------------------[m
+ skills/bug-hunter-GITHUBID/scripts/requirements.txt  |   2 [31m-[m
+ skills/bug-hunter-GITHUBID/scripts/run.py            |  98 [31m---------------------[m
+ skills/code-author-GITHUBID/SKILL.md                 |  58 [31m-------------[m
+ skills/code-author-GITHUBID/scripts/requirements.txt |   1 [31m-[m
+ skills/code-author-GITHUBID/scripts/run.py           |  67 [31m---------------[m
+ skills/code-author-GITHUBID/scripts/selftest.py      | 164 [31m-----------------------------------[m
+ skills/open-jsonvalidate-1eadbloom/SKILL.md          |  10 [32m++[m[31m-[m
+ skills/text2sql-GITHUBID/SKILL.md                    |  55 [31m------------[m
+ skills/text2sql-GITHUBID/scripts/requirements.txt    |   4 [31m-[m
+ skills/text2sql-GITHUBID/scripts/run.py              |  74 [31m----------------[m
+ skills/text2sql-GITHUBID/scripts/validate_sql.py     |  77 [31m-----------------[m
+ verify_repo.py                                       |  22 [32m+++++[m
+ 17 files changed, 195 insertions(+), 909 deletions(-)

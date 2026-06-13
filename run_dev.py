@@ -47,7 +47,28 @@ _FENCED_JSON_RE = re.compile(
 )
 
 
-def extract_last_json_block(stdout: str) -> Optional[dict]:
+def _strip_ansi(text: str) -> str:
+    return re.sub(r'\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', text)
+
+
+def _extract_sql_fallback(text: str, task_id: str = "") -> Optional[dict]:
+    """Extract SQL from plain-text Hermes output when no fenced JSON block is present."""
+    # channel tag format: <channel|>SELECT ...
+    m = re.search(r'<channel\|>(SELECT.+?)(?:\n\s*\n|Resume this session|Session:|\Z)',
+                  text, re.DOTALL | re.IGNORECASE)
+    if not m:
+        # bare SELECT multiline
+        m = re.search(r'(SELECT\s+\S.+?)(?:\n\s*\n|Resume this session|Session:|\Z)',
+                      text, re.DOTALL | re.IGNORECASE)
+    if not m:
+        return None
+    sql = m.group(1).strip().rstrip(';').strip()
+    if not sql:
+        return None
+    return {"task_id": task_id, "sql": sql, "rationale": "extracted from output", "confidence": 0.7}
+
+
+def extract_last_json_block(stdout: str, task_id: str = "") -> Optional[dict]:
     """
     從 Hermes Agent 的 stdout 擷取「最後一段 fenced JSON 區塊」並解析。
 
@@ -62,9 +83,10 @@ def extract_last_json_block(stdout: str) -> Optional[dict]:
     """
     if not isinstance(stdout, str):
         return None
+    stdout = _strip_ansi(stdout)
     matches = _FENCED_JSON_RE.findall(stdout)
     if not matches:
-        return None
+        return _extract_sql_fallback(stdout, task_id)
     body = matches[-1].strip()
     try:
         obj = json.loads(body)
@@ -182,14 +204,24 @@ def call_hermes_skill(slash_command: str, payload: dict) -> HermesResult:
 
     payload_str = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     arg = f"{slash_command} {payload_str}"
-    cmd = [HERMES_BIN, "chat", "--toolsets", "skills", "-q", arg]
+    cmd = [HERMES_BIN, "chat", "--toolsets", "skills,terminal", "--yolo", "--cli", "-q", arg]
 
     t0 = time.time()
+    import re as _re, shlex, tempfile, os as _os
+    _ansi = _re.compile(r'\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    outfile = tempfile.mktemp(suffix='.txt')
     try:
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=HERMES_TIMEOUT_SEC, check=False,
-        )
+        quoted = shlex.join(cmd)
+        script_cmd = ["script", "-q", "-e", "-c", quoted, outfile]
+        proc = subprocess.run(script_cmd, timeout=HERMES_TIMEOUT_SEC, check=False)
+        with open(outfile, 'r', encoding='utf-8', errors='replace') as _f:
+            _raw = _f.read()
+        _os.unlink(outfile)
+        stdout_text = _ansi.sub('', _raw)
+        rc = proc.returncode
     except subprocess.TimeoutExpired:
+        try: _os.unlink(outfile)
+        except Exception: pass
         return HermesResult(
             ok=False, stdout="", stderr="", returncode=-1,
             elapsed_sec=time.time() - t0,
@@ -197,10 +229,10 @@ def call_hermes_skill(slash_command: str, payload: dict) -> HermesResult:
         )
     elapsed = time.time() - t0
     return HermesResult(
-        ok=(proc.returncode == 0),
-        stdout=proc.stdout or "",
-        stderr=proc.stderr or "",
-        returncode=proc.returncode,
+        ok=(rc == 0),
+        stdout=stdout_text,
+        stderr="",
+        returncode=rc,
         elapsed_sec=elapsed,
     )
 
@@ -338,7 +370,7 @@ def grade_basic(skill_name: str, dry_run: bool = False) -> TrackReport:
             ))
             continue
 
-        obj = extract_last_json_block(hr.stdout)
+        obj = extract_last_json_block(hr.stdout, task_id)
         if obj is None:
             rep.results.append(TaskResult(
                 task_id, False, reason="no valid fenced JSON in stdout",

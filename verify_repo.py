@@ -161,6 +161,28 @@ def check_pairwise_role(rep: Report) -> None:
         rep.add("pairwise-role:exists", False, "PAIRWISE_ROLE.md missing")
         return
     text = _read(p)
+
+    # New multi-role format (Q3 spec update)
+    role_entries = re.findall(
+        r"-\s+role:\s*(code-author|bug-hunter)\s*\n\s+skill_path:\s*(\S+)", text
+    )
+    if role_entries:
+        found_roles = {r for r, _ in role_entries}
+        for required in ("code-author", "bug-hunter"):
+            if required not in found_roles:
+                rep.add(f"pairwise-role:{required}", False,
+                        f"role '{required}' missing from roles list")
+                continue
+            sp = next(path for role, path in role_entries if role == required).rstrip("/")
+            target = REPO_ROOT / sp
+            if not target.is_dir():
+                rep.add(f"pairwise-role:{required}:skill_path", False,
+                        f"path not a directory: {sp}")
+            else:
+                rep.add(f"pairwise-role:{required}", True, sp)
+        return
+
+    # Legacy single-role format
     role_m = re.search(r"^role:\s*(code-author|bug-hunter)\s*$", text, re.MULTILINE)
     path_m = re.search(r"^skill_path:\s*(\S+)\s*$", text, re.MULTILINE)
     if not role_m:

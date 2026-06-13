@@ -1,13 +1,50 @@
-role: code-author
-skill_path: skills/code-author-<github_id>/
+\# PAIRWISE\_ROLE «Å§i
 
-<!--
-   å¡«å¯«èªªæ˜Ž:
-   - role åªèƒ½æ˜¯ code-author æˆ– bug-hunter,æ“‡ä¸€ã€‚
-   - skill_path å¿…é ˆæŒ‡å‘ä½  repo å…§å¯¦éš›å­˜åœ¨çš„ skill è³‡æ–™å¤¾,çµå°¾è¦æœ‰ /ã€‚
-   - è©•åˆ†å™¨åªçœ‹ä¸Šé¢å…©è¡Œ;ä»¥ä¸‹ comment å€æœƒè¢«å¿½ç•¥ã€‚
-   - è‹¥å…©å€‹ Pairwise skill éƒ½äº¤,**æœªåœ¨æ­¤å®£å‘Š**çš„é‚£å€‹ä¸æœƒè¢«è©•åˆ†ã€‚
-   - æ”¹å¯«ç¯„ä¾‹ â€” æƒ³ç•¶ Bug Hunter:
-       role: bug-hunter
-       skill_path: skills/bug-hunter-<github_id>/
--->
+
+
+> Pairwise Track¡G\*\*¨â­Ó¨¤¦â¡]Code Author + Bug Hunter¡^³£­n¹ê§@¨Ã´£¥æ\*\*¡C
+
+> µû¤À®É¡A½Òµ{·|\*\*ÀH¾÷©â¨ú¨ä¤¤¤@­Ó¨¤¦â\*\*¡A¨Ã»P¥t¤@¦ì¦P¾ÇÀH¾÷°t¹ï¨Óµû¤À¡C
+
+> ¦]¦¹½Ð\*\*¦P®É«Å§i¨â­Ó skill ªº¸ô®|\*\*¡A®æ¦¡¦p¤U¡]`roles` ¬°¤@­Ó list¡A§t¨âµ§¡^¡C
+
+
+
+```markdown
+
+roles:
+
+&#x20; - role: code-author
+
+&#x20;   skill\_path: skills/code-author-<github\_id>/
+
+&#x20; - role: bug-hunter
+
+&#x20;   skill\_path: skills/bug-hunter-<github\_id>/
+
+```
+
+
+
+\## ³W«h
+
+
+
+1\. `roles` ¥²¶·¦P®É¥]§t `code-author` »P `bug-hunter` ¨âµ§¡C
+
+2\. ¨Cµ§ªº `role` ¥u¯à¬O `code-author` ©Î `bug-hunter`¡A¥B¤£¥i­«½Æ¡C
+
+3\. ¨C­Ó `skill\_path` ¥²¶·«ü¦V¹ê»Ú¦s¦b¡B¥B¯à³Q `hermes skills list` ¬Ý¨ìªº skill ¸ê®Æ§¨¡C
+
+4\. µû¤À®É½Òµ{·|\*\*ÀH¾÷©â¨ú¨ä¤¤¤@­Ó¨¤¦â\*\*µû¤À¡A¨Ã»P¥t¤@¦ì¦P¾ÇÀH¾÷°t¹ï¡F§AµLªk¿ï¾Ü³Q©â¨ì­þ­Ó¨¤¦â¡A¤]µLªk¿ï¾Ü°t¹ï¹ï¶H¡C
+
+5\. ­Y `PAIRWISE\_ROLE.md` ¯Êº|¡B®æ¦¡¿ù»~¡B©Î¥ô¤@ `skill\_path` ¤£¦s¦b / µLªk³Q¸ü¤J¡APairwise Track µø¬°µLªkµû¤À¡A¸Ó Track 0 ¤À¡C
+
+
+
+\## ³Æµù¡]¿ï¶ñ¡^
+
+
+
+<!-- ¥ô¦ó°t¹ï¬ÛÃö»¡©ú¡Cª`·N¡G°t¹ï¹ï¶H¥Ñ½Òµ{¦Û°ÊÀH¾÷«ü¬£¡A¤£±o¨p¤U¬ù©w¡C -->
+
