@@ -1,0 +1,98 @@
+---
+name: bug-hunter-1eadbloom
+description: Audit a Python function for bugs against its task description, emit a structured bug report per the AIASE 2026 Pairwise Bug Hunter contract.
+version: 1.0.0
+metadata:
+  hermes:
+    tags: [code, audit, python, aiase-2026]
+    category: code
+---
+
+# Bug Hunter Skill (Pairwise Track)
+
+## When to Use
+
+When the user sends a JSON payload with `code` (Python source), `task_description`, and `task_id`. Produce a structured bug report.
+
+Trigger example:
+```
+/bug-hunter-1eadbloom {"task_id":"task_042","code":"def merge_intervals(intervals): ...","task_description":"Merge overlapping intervals, empty input returns []."}
+```
+
+## Procedure
+
+1. **Parse** the payload. Extract `task_id`, `code`, `task_description`. Note: `code` is 1-indexed, every line counts (including blank lines and comments).
+
+2. **Extract the entry function name** from the code by looking for the first `def` statement.
+
+3. **Run the deterministic analyzer** to get AST structure + edge-input probe results:
+   ```
+   python scripts/analyze.py '{"code":"<code>","entry_function":"<entry>","edge_inputs":[<task_specific_probes>]}'
+   ```
+   Use task-specific `edge_inputs` based on the `task_description`:
+   - For **list/interval/array** functions: `[{"input":[[]],"label":"empty"},{"input":[[[1,3]]],"label":"single"},{"input":[[[1,3],[2,4]]],"label":"overlap"},{"input":[[[1,2],[2,3]]],"label":"touching"}]`
+   - For **search** functions: `[{"input":[[],0],"label":"empty arr"},{"input":[[5],5],"label":"singleton hit"},{"input":[[5],9],"label":"singleton miss"},{"input":[[1,2,3],1],"label":"first"},{"input":[[1,2,3],3],"label":"last"}]`
+   - For **string/CSV** functions: `[{"input":[""],"label":"empty string"},{"input":["a"],"label":"single char"},{"input":["a,b"],"label":"two fields"},{"input":["\"a,b\",c"],"label":"quoted comma"},{"input":["\"\""],"label":"empty quoted"}]`
+   - For **grid/DP** functions: `[{"input":[1,1],"label":"1x1"},{"input":[1,5],"label":"single row"},{"input":[5,1],"label":"single col"},{"input":[3,3],"label":"3x3"},{"input":[0,3],"label":"zero dim"}]`
+   - For **k-th element** functions: `[{"input":[[],1],"label":"empty"},{"input":[[5],1],"label":"single k1"},{"input":[[1,2,3],0],"label":"k=0 invalid"},{"input":[[1,2,3],4],"label":"k>len"},{"input":[[1,1,1],2],"label":"duplicates"}]`
+   - For **unknown type**: use the default battery (omit `edge_inputs` key).
+
+4. **Analyse the probe results.** For each crashed/timed-out probe:
+   - Is the crash on a line inside the function (`bad_line` > 0)? ??Strong evidence of bug.
+   - What type of input caused it? ??Classify (edge_case, off_by_one, unhandled_input, etc.)
+
+5. **Read the code carefully** for the following patterns:
+   - **Missing empty guard:** Does the first line of the function body access `input[0]`, `input[-1]`, or iterate without checking `if not input`?
+   - **Off-by-one in loops:** `range(n-1)` vs `range(n)`, `< n` vs `<= n`, `while lo < hi` vs `while lo <= hi`.
+   - **1-indexed vs 0-indexed k:** Does `sorted(arr)[k]` appear when spec says k=1 means minimum? ??off_by_one.
+   - **set() deduplication:** Does `set(arr)` appear before sorting when spec says duplicates count? ??logic_error.
+   - **Inconsistent bounds in binary search:** `hi = len(arr)` (exclusive) paired with `hi = mid - 1` (inclusive shrink) ??logic_error.
+   - **Touching-interval off-by-one:** `cur[0] < merged[-1][1]` instead of `<=` when spec says touching intervals merge ??off_by_one.
+   - **Quoted-field CSV parsing:** Simple split or toggle-on-every-quote approach ??unhandled_input or edge_case.
+   - **Wrong DP recurrence:** `dp[i][j] + dp[i][j]` (reads self) instead of `dp[i][j-1]` ??logic_error.
+   - **Missing k bounds validation:** No check `k < 1 or k > len(nums)` ??unhandled_input.
+
+6. **Calibrate severity accurately:**
+   - `critical`: Always produces wrong answer on typical input, or crashes on normal non-edge input.
+   - `high`: Wrong answer or crash on common inputs (e.g., sorted array with target at position 0, standard interval list).
+   - `medium`: Wrong answer only on edge/boundary inputs (empty list, touching intervals, k=len, single element).
+   - `low`: Correctness unaffected; only style/efficiency concern.
+
+   **Do NOT over-report.** False positives on clean code are penalized (25% of your grade). If you are unsure whether something is a bug vs design choice, default to NOT reporting it unless the probe directly crashed on it.
+
+7. **Decide verdict:**
+   - `buggy` if you found at least one concrete, evidence-backed bug.
+   - `clean` if all probes passed and no clear logic/spec violation found.
+   - If `verdict=clean`, `bugs` MUST be `[]`.
+
+8. **Emit** the contract by running:
+   ```
+   python scripts/run.py '{"task_id":"<task_id>","verdict":"<verdict>","bugs":[<bug_objects>],"confidence":<0.0-1.0>}'
+   ```
+   Output the resulting fenced JSON block **unchanged as your final response**. Do not add text after it.
+
+## Bug Object Format
+
+Each bug object must have exactly:
+- `line_start`: integer, 1-indexed, first line of the buggy code region
+- `line_end`: integer, 1-indexed, >= line_start
+- `severity`: one of `critical`, `high`, `medium`, `low`
+- `type`: one of `off_by_one`, `null_deref`, `type_error`, `logic_error`, `edge_case`, `api_misuse`, `inefficient`, `unhandled_input`
+- `description`: what is wrong and on what input it manifests
+- `suggested_fix`: specific, actionable fix
+
+**Line numbers point to the bug location in `code`, not to the task description or test harness.**
+
+## Pitfalls
+
+- **Over-reporting clean code:** If probes all pass and code logic looks correct, report `verdict=clean`. Marking style issues as `high` severity destroys your false-positive score.
+- **Under-reporting obvious bugs:** If `empty list` probe crashes, that's definitely a bug. Report it.
+- **Wrong line numbers:** Count from line 1 of the `code` field (including blank lines). If line 3 is `merged = [intervals[0]]` and that crashes on empty input, `line_start=3`.
+- **Reporting test infrastructure as bugs:** Don't report things like "no type hints" or "no docstring" ??these are not bugs.
+- **Wrong bug type:** An empty-input IndexError is `edge_case` (medium), not `null_deref`. Wrong operator (`<` vs `<=`) is `off_by_one`, not `logic_error`.
+
+## Verification
+
+`scripts/analyze.py` gives deterministic probe evidence. The LLM's job is to interpret that evidence + read the code carefully to produce a precise, calibrated bug report.
+
+
