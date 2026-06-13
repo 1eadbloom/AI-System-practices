@@ -1,6 +1,6 @@
 # 期末報告 — AIASE 2026 Final Project
 
-> 學生：韓倫語 / GitHub: `1eadbloom`
+> 學生：徐祥智 / GitHub: `1eadbloom`
 
 ---
 
