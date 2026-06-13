@@ -33,7 +33,7 @@ DEV_SET_DIR = REPO_ROOT / "dev_set"
 RESULTS_DIR = REPO_ROOT / "dev_run_results"
 
 HERMES_BIN = os.environ.get("HERMES_BIN", "hermes")
-HERMES_TIMEOUT_SEC = int(os.environ.get("HERMES_TIMEOUT_SEC", "120"))
+HERMES_TIMEOUT_SEC = int(os.environ.get("HERMES_TIMEOUT_SEC", "300"))
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +49,18 @@ _FENCED_JSON_RE = re.compile(
 
 def _strip_ansi(text: str) -> str:
     return re.sub(r'\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])', '', text)
+
+
+def _extract_channel_json(text: str) -> Optional[dict]:
+    """Extract JSON from Hermes channel format: <channel|>json\n{...}"""
+    m = re.search(r'<channel\|>json\s*\n(\{.+?\})(?:\s*\n|\Z)', text, re.DOTALL)
+    if not m:
+        return None
+    try:
+        obj = json.loads(m.group(1))
+        return obj if isinstance(obj, dict) else None
+    except json.JSONDecodeError:
+        return None
 
 
 def _extract_sql_fallback(text: str, task_id: str = "") -> Optional[dict]:
@@ -86,6 +98,10 @@ def extract_last_json_block(stdout: str, task_id: str = "") -> Optional[dict]:
     stdout = _strip_ansi(stdout)
     matches = _FENCED_JSON_RE.findall(stdout)
     if not matches:
+        # Try Hermes channel format: <channel|>json {…}
+        chan = _extract_channel_json(stdout)
+        if chan is not None:
+            return chan
         return _extract_sql_fallback(stdout, task_id)
     body = matches[-1].strip()
     try:
