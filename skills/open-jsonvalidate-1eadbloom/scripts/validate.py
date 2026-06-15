@@ -12,7 +12,7 @@ Supported keywords:
     type, required, properties, additionalProperties,
     minimum, maximum, exclusiveMinimum, exclusiveMaximum,
     minLength, maxLength, minItems, maxItems, items,
-    enum, const, pattern, allOf, anyOf, oneOf
+    enum, const, pattern, allOf, anyOf, oneOf, not
 """
 
 from __future__ import annotations
@@ -154,13 +154,20 @@ def validate(schema: Any, instance: Any, path: str = "") -> list[dict]:
                 errors.extend(sub_errors)
 
     if "anyOf" in schema:
-        if not any(not validate(sub, instance, path) for sub in schema["anyOf"]):
-            err("anyOf", f"Value does not satisfy any of the anyOf sub-schemas")
+        sub_results = [validate(sub, instance, path) for sub in schema["anyOf"]]
+        if not any(not r for r in sub_results):
+            err("anyOf", "Value does not satisfy any of the anyOf sub-schemas")
 
     if "oneOf" in schema:
         matching = [i for i, sub in enumerate(schema["oneOf"]) if not validate(sub, instance, path)]
         if len(matching) != 1:
             err("oneOf", f"Value must satisfy exactly one of oneOf sub-schemas; matched {len(matching)}")
+
+    # --- not ---
+    if "not" in schema:
+        sub_errors = validate(schema["not"], instance, path)
+        if not sub_errors:
+            err("not", "Value must NOT match the 'not' sub-schema, but it does")
 
     return errors
 
@@ -181,5 +188,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
-
-

@@ -1,7 +1,7 @@
 ---
 name: open-jsonvalidate-1eadbloom
 description: Validate a JSON object against a JSON Schema (draft-07 subset) and write a structured validation report via scripts/run.py (file-based output contract). AIASE 2026 Open Track.
-version: 2.0.0
+version: 2.1.0
 metadata:
   hermes:
     tags: [json, schema, validation, aiase-2026]
@@ -60,6 +60,7 @@ The validator supports:
 - `const`: value must equal this constant
 - `pattern`: string must match this regex
 - `allOf`, `anyOf`, `oneOf`: logical combinators
+- `not`: instance must NOT validate against the given sub-schema (e.g. `{"not":{"enum":["banned","deleted"]}}` rejects those two values and accepts anything else)
 
 ## Output Contract (result file)
 
@@ -90,6 +91,7 @@ The validator supports:
 - `error_count` must match `len(errors)` exactly.
 - `valid=true` requires `errors=[]` and `error_count=0`.
 - `task_id` must match input exactly.
+- A `not` violation reports `rule: "not"` at the path of the sub-schema that was supposed to fail but didn't — don't confuse this with the keyword inside the `not` block.
 - **Do not use process/background tools** to run `scripts/run.py` — use the synchronous `terminal` tool so the write completes before your turn ends.
 
 ## Verification

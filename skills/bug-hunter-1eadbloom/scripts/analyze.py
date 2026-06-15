@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-bug-hunter analyzer ??deterministic edge-input probing.
+bug-hunter analyzer -- deterministic edge-input probing with optional oracle comparison.
 
 Usage:
     python analyze.py '{
@@ -8,19 +8,27 @@ Usage:
         "entry_function": "<entry_name>",
         "edge_inputs": [          # optional; if omitted, a generic battery is used
             {"input": [[]],          "label": "empty container"},
-            {"input": [0],           "label": "zero"}
+            {"input": [0],           "label": "zero"},
+            {"input": [[1,2,3], 1],  "label": "first element", "expected": 1}
         ]
     }'
 
 Prints a single fenced JSON block:
     {"entry_found": bool,
      "ast_lines": {"entry_def": int, "return_lines": [int], "loop_lines": [int]},
-     "probes": [{"label": str, "outcome": "ok"|"crash"|"timeout", "error": str}],
+     "probes": [{"label": str, "outcome": "ok"|"crash"|"timeout"|"mismatch", "error": str,
+                  "actual": <any, present when outcome in {ok, mismatch}>,
+                  "expected": <any, present if the probe supplied "expected">}],
      "suspicious_lines": [int],
      "summary": str}
 
 This is the deterministic side of the bug-hunter; the LLM uses it as evidence,
 but still makes the final bug-vs-not-bug judgment.
+
+Oracle-based probing: if a probe in `edge_inputs` includes an "expected" key,
+the probe's return value is compared against it with `==`. A mismatch produces
+outcome="mismatch" -- this is how *silent* logic errors (wrong answer, no crash)
+get surfaced, which "crash vs ok vs timeout" alone cannot detect.
 """
 
 from __future__ import annotations
@@ -92,7 +100,9 @@ def _default_battery() -> list[dict]:
     <candidate>), so wrong-arity noise does not pollute suspicious_lines.
 
     For more targeted probing, callers should pass `edge_inputs` in the
-    payload instead of relying on this generic battery.
+    payload instead of relying on this generic battery. Include an "expected"
+    key on any probe to enable oracle-based mismatch detection (catches
+    silent wrong-answer bugs that don't crash).
     """
     return [
         {"input": [[]],                "label": "empty list"},
@@ -109,36 +119,61 @@ def _default_battery() -> list[dict]:
 
 
 def _probe(code: str, entry: str, sample: dict, timeout_sec: float) -> dict:
+    label = sample.get("label", "?")
+    has_expected = "expected" in sample
+    expected = sample.get("expected")
+
     ns: dict = {}
     try:
         exec(compile(code, "<candidate>", "exec"), ns)
     except Exception as e:
-        return {"label": sample.get("label", "?"), "outcome": "crash",
-                "error": f"compile/exec error: {e!r}"}
+        r = {"label": label, "outcome": "crash",
+             "error": f"compile/exec error: {e!r}"}
+        if has_expected:
+            r["expected"] = expected
+        return r
     fn = ns.get(entry)
     if not callable(fn):
-        return {"label": sample.get("label", "?"), "outcome": "crash",
-                "error": f"entry function {entry!r} not defined"}
+        r = {"label": label, "outcome": "crash",
+             "error": f"entry function {entry!r} not defined"}
+        if has_expected:
+            r["expected"] = expected
+        return r
     args = sample.get("input", [])
     try:
         with _time_limit(timeout_sec):
-            _ = fn(*args) if isinstance(args, list) else fn(args)
-        return {"label": sample.get("label", "?"), "outcome": "ok", "error": ""}
+            actual = fn(*args) if isinstance(args, list) else fn(args)
+        if has_expected:
+            if actual == expected:
+                return {"label": label, "outcome": "ok", "error": "",
+                        "actual": actual, "expected": expected}
+            else:
+                return {"label": label, "outcome": "mismatch",
+                        "error": f"expected {expected!r}, got {actual!r}",
+                        "actual": actual, "expected": expected}
+        return {"label": label, "outcome": "ok", "error": "", "actual": actual}
     except _Timeout as e:
-        return {"label": sample.get("label", "?"), "outcome": "timeout", "error": str(e)}
+        r = {"label": label, "outcome": "timeout", "error": str(e)}
+        if has_expected:
+            r["expected"] = expected
+        return r
     except Exception as e:
         tb = traceback.extract_tb(e.__traceback__)
-        # ??traceback ä¸­å???<candidate> ?„æ?å¾Œä?è¡??¨æ¸¬ suspicious line
+        # Walk the traceback to find the deepest frame inside <candidate>
+        # to pinpoint the suspicious line.
         bad_line = -1
         for f in tb:
             if f.filename == "<candidate>" and f.lineno:
                 bad_line = f.lineno
-        return {
-            "label": sample.get("label", "?"),
+        r = {
+            "label": label,
             "outcome": "crash",
             "error": f"{type(e).__name__}: {e}",
             "bad_line": bad_line,
         }
+        if has_expected:
+            r["expected"] = expected
+        return r
 
 
 def main(argv: list[str]) -> int:
@@ -166,12 +201,20 @@ def main(argv: list[str]) -> int:
         probes.append(r)
         if r["outcome"] != "ok" and r.get("bad_line", -1) > 0:
             suspicious.add(r["bad_line"])
+        # A mismatch (wrong-but-non-crashing output) is also evidence of a bug,
+        # even though it has no traceback to pin a line. Surface it via the
+        # AST's return_lines so the LLM has somewhere concrete to look.
+        if r["outcome"] == "mismatch":
+            for rl in ast_lines.get("return_lines", []):
+                suspicious.add(rl)
 
     crashes = sum(1 for r in probes if r["outcome"] == "crash")
     timeouts = sum(1 for r in probes if r["outcome"] == "timeout")
+    mismatches = sum(1 for r in probes if r["outcome"] == "mismatch")
+    ok = len(probes) - crashes - timeouts - mismatches
     summary = (
         f"{len(probes)} probes; {crashes} crash, {timeouts} timeout, "
-        f"{len(probes)-crashes-timeouts} ok; "
+        f"{mismatches} mismatch (wrong answer, no crash), {ok} ok; "
         f"suspicious_lines={sorted(suspicious)}"
     )
 
@@ -186,5 +229,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
-
-
