@@ -1,14 +1,15 @@
 ---
 name: bug-hunter-1eadbloom
-description: Audit a Python function for bugs against its task description, emit a structured bug report per the AIASE 2026 Pairwise Bug Hunter contract.
-version: 1.0.0
+description: Audit a Python function for bugs against its task description and write a structured bug report via scripts/run.py (file-based output contract). AIASE 2026 Pairwise Track (Bug Hunter role).
+version: 2.0.0
 metadata:
   hermes:
     tags: [code, audit, python, aiase-2026]
     category: code
+    requires_toolsets: [terminal]
 ---
 
-# Bug Hunter Skill (Pairwise Track)
+# Bug Hunter Skill (Pairwise Track, file-based output contract)
 
 ## When to Use
 
@@ -25,9 +26,9 @@ Trigger example:
 
 2. **Extract the entry function name** from the code by looking for the first `def` statement.
 
-3. **Run the deterministic analyzer** to get AST structure + edge-input probe results:
+3. **Run the deterministic analyzer** to get AST structure + edge-input probe results, using the `terminal` tool with an **absolute path** (`<skill_dir>` is given to you by Hermes via `[Skill directory: ...]`):
    ```
-   python scripts/analyze.py '{"code":"<code>","entry_function":"<entry>","edge_inputs":[<task_specific_probes>]}'
+   python3 <skill_dir>/scripts/analyze.py '{"code":"<code>","entry_function":"<entry>","edge_inputs":[<task_specific_probes>]}'
    ```
    Use task-specific `edge_inputs` based on the `task_description`:
    - For **list/interval/array** functions: `[{"input":[[]],"label":"empty"},{"input":[[[1,3]]],"label":"single"},{"input":[[[1,3],[2,4]]],"label":"overlap"},{"input":[[[1,2],[2,3]]],"label":"touching"}]`
@@ -38,19 +39,19 @@ Trigger example:
    - For **unknown type**: use the default battery (omit `edge_inputs` key).
 
 4. **Analyse the probe results.** For each crashed/timed-out probe:
-   - Is the crash on a line inside the function (`bad_line` > 0)? ??Strong evidence of bug.
-   - What type of input caused it? ??Classify (edge_case, off_by_one, unhandled_input, etc.)
+   - Is the crash on a line inside the function (`bad_line` > 0)? → Strong evidence of bug.
+   - What type of input caused it? → Classify (edge_case, off_by_one, unhandled_input, etc.)
 
 5. **Read the code carefully** for the following patterns:
    - **Missing empty guard:** Does the first line of the function body access `input[0]`, `input[-1]`, or iterate without checking `if not input`?
    - **Off-by-one in loops:** `range(n-1)` vs `range(n)`, `< n` vs `<= n`, `while lo < hi` vs `while lo <= hi`.
-   - **1-indexed vs 0-indexed k:** Does `sorted(arr)[k]` appear when spec says k=1 means minimum? ??off_by_one.
-   - **set() deduplication:** Does `set(arr)` appear before sorting when spec says duplicates count? ??logic_error.
-   - **Inconsistent bounds in binary search:** `hi = len(arr)` (exclusive) paired with `hi = mid - 1` (inclusive shrink) ??logic_error.
-   - **Touching-interval off-by-one:** `cur[0] < merged[-1][1]` instead of `<=` when spec says touching intervals merge ??off_by_one.
-   - **Quoted-field CSV parsing:** Simple split or toggle-on-every-quote approach ??unhandled_input or edge_case.
-   - **Wrong DP recurrence:** `dp[i][j] + dp[i][j]` (reads self) instead of `dp[i][j-1]` ??logic_error.
-   - **Missing k bounds validation:** No check `k < 1 or k > len(nums)` ??unhandled_input.
+   - **1-indexed vs 0-indexed k:** Does `sorted(arr)[k]` appear when spec says k=1 means minimum? → off_by_one.
+   - **set() deduplication:** Does `set(arr)` appear before sorting when spec says duplicates count? → logic_error.
+   - **Inconsistent bounds in binary search:** `hi = len(arr)` (exclusive) paired with `hi = mid - 1` (inclusive shrink) → logic_error.
+   - **Touching-interval off-by-one:** `cur[0] < merged[-1][1]` instead of `<=` when spec says touching intervals merge → off_by_one.
+   - **Quoted-field CSV parsing:** Simple split or toggle-on-every-quote approach → unhandled_input or edge_case.
+   - **Wrong DP recurrence:** `dp[i][j] + dp[i][j]` (reads self) instead of `dp[i][j-1]` → logic_error.
+   - **Missing k bounds validation:** No check `k < 1 or k > len(nums)` → unhandled_input.
 
 6. **Calibrate severity accurately:**
    - `critical`: Always produces wrong answer on typical input, or crashes on normal non-edge input.
@@ -65,11 +66,15 @@ Trigger example:
    - `clean` if all probes passed and no clear logic/spec violation found.
    - If `verdict=clean`, `bugs` MUST be `[]`.
 
-8. **Emit** the contract by running:
+8. **Write the result file.** Use the `terminal` tool (NOT a process/background tool) and run, with an **absolute path**:
    ```
-   python scripts/run.py '{"task_id":"<task_id>","verdict":"<verdict>","bugs":[<bug_objects>],"confidence":<0.0-1.0>}'
+   python3 <skill_dir>/scripts/run.py \
+     --task_id "<task_id>" \
+     --verdict "<buggy|clean>" \
+     --bugs '<JSON array of bug objects, or [] if clean>' \
+     --confidence <0.0-1.0>
    ```
-   Output the resulting fenced JSON block **unchanged as your final response**. Do not add text after it.
+   This writes the result to the file given by the `AIASE_RESULT_PATH` environment variable (or `./aiase_result.json` if unset). **You do not need to print or repeat the JSON in the chat message** — the grader reads the result file, not your reply.
 
 ## Bug Object Format
 
@@ -88,11 +93,10 @@ Each bug object must have exactly:
 - **Over-reporting clean code:** If probes all pass and code logic looks correct, report `verdict=clean`. Marking style issues as `high` severity destroys your false-positive score.
 - **Under-reporting obvious bugs:** If `empty list` probe crashes, that's definitely a bug. Report it.
 - **Wrong line numbers:** Count from line 1 of the `code` field (including blank lines). If line 3 is `merged = [intervals[0]]` and that crashes on empty input, `line_start=3`.
-- **Reporting test infrastructure as bugs:** Don't report things like "no type hints" or "no docstring" ??these are not bugs.
+- **Reporting test infrastructure as bugs:** Don't report things like "no type hints" or "no docstring" — these are not bugs.
 - **Wrong bug type:** An empty-input IndexError is `edge_case` (medium), not `null_deref`. Wrong operator (`<` vs `<=`) is `off_by_one`, not `logic_error`.
+- **Do not use process/background tools** to run `scripts/run.py` — use the synchronous `terminal` tool so the write completes before your turn ends.
 
 ## Verification
 
-`scripts/analyze.py` gives deterministic probe evidence. The LLM's job is to interpret that evidence + read the code carefully to produce a precise, calibrated bug report.
-
-
+`scripts/analyze.py` gives deterministic probe evidence. The LLM's job is to interpret that evidence + read the code carefully to produce a precise, calibrated bug report. The result file must exist, be a valid JSON object, have `task_id` matching the input, `verdict` in `{buggy, clean}`, and `bugs=[]` whenever `verdict=clean`.

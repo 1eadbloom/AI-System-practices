@@ -1,14 +1,15 @@
 ---
 name: code-author-1eadbloom
-description: Implement a Python function from a natural-language task description, self-test with edge cases, and emit the AIASE 2026 Pairwise Code Author contract.
-version: 1.0.0
+description: Implement a Python function from a natural-language task description, self-test with edge cases, and write the result via scripts/run.py (file-based output contract). AIASE 2026 Pairwise Track (Code Author role).
+version: 2.0.0
 metadata:
   hermes:
     tags: [code, python, aiase-2026]
     category: code
+    requires_toolsets: [terminal]
 ---
 
-# Code Author Skill (Pairwise Track)
+# Code Author Skill (Pairwise Track, file-based output contract)
 
 ## When to Use
 
@@ -43,30 +44,27 @@ Trigger example:
    - Typical multi-element case
    - Boundary/extreme cases mentioned in the spec
 
-   Format:
-   ```json
-   [
-     {"input": [[]], "expected": []},
-     {"input": [[[1,3]]], "expected": [[1,3]]},
-     {"input": [[[1,3],[2,4]]], "expected": [[1,4]]}
-   ]
+5. **Self-test** with `scripts/selftest.py` using the `terminal` tool and an **absolute path** (`<skill_dir>` is given to you by Hermes via `[Skill directory: ...]`):
    ```
-   Where `input` is a list of positional arguments to the function.
-
-5. **Self-test** by running:
-   ```
-   python scripts/selftest.py '{"code":"<your_code>","constraints":<constraints_object>,"sample_inputs":<your_sample_inputs>}'
+   python3 <skill_dir>/scripts/selftest.py '{"code":"<your_code>","constraints":<constraints_object>,"sample_inputs":<your_sample_inputs>}'
    ```
    Read the fenced JSON block returned. Check `passed`, `failed`, `errors`, `sloc`, `loc_violation`, `import_violations`.
    - If `failed > 0` or `import_violations` non-empty or `loc_violation=true`: fix the code and retry. Maximum **3 retries**.
    - If `sloc > constraints.max_loc`: simplify code.
    - After 3 failures, proceed with best version and `confidence=0.3`.
 
-6. **Emit** the contract by running:
+6. **Write the result file.** Use the `terminal` tool (NOT a process/background tool) and run, with an **absolute path**:
    ```
-   python scripts/run.py '{"task_id":"<task_id>","code":"<final_code>","loc":<sloc>,"self_test_results":{"passed":<n>,"failed":<m>},"rationale":"<one sentence>","confidence":<0.0-1.0>}'
+   python3 <skill_dir>/scripts/run.py \
+     --task_id "<task_id>" \
+     --code "<final_code>" \
+     --loc <sloc> \
+     --self_test_passed <n> \
+     --self_test_failed <m> \
+     --rationale "<one sentence>" \
+     --confidence <0.0-1.0>
    ```
-   Output the resulting fenced JSON block **unchanged as your final response**. Do not add text after it.
+   This writes the result to the file given by the `AIASE_RESULT_PATH` environment variable (or `./aiase_result.json` if unset). **You do not need to print or repeat the JSON in the chat message** — the grader reads the result file, not your reply.
 
 ## Implementation Patterns
 
@@ -101,7 +99,7 @@ def merge_intervals(intervals):
     return merged
 ```
 
-**Binary search ??use inclusive bounds consistently:**
+**Binary search — use inclusive bounds consistently:**
 ```python
 def binary_search(arr, target):
     lo, hi = 0, len(arr) - 1  # inclusive on both ends
@@ -116,7 +114,7 @@ def binary_search(arr, target):
     return -1
 ```
 
-**CSV parsing ??track quoting state explicitly:**
+**CSV parsing — track quoting state explicitly:**
 ```python
 def parse_csv_line(line):
     fields, cur, in_q = [], [], False
@@ -144,16 +142,15 @@ def parse_csv_line(line):
 
 ## Pitfalls
 
-- **Missing empty-input guard** ??most common failure. ALWAYS add `if not items: return ...` at the top.
-- **Off-by-one in binary search** ??use `while lo <= hi` with inclusive `hi = len(arr)-1`, never `while lo < hi`.
-- **Touching intervals** ??use `<=` not `<` when merging: `[1,2]` and `[2,3]` should merge to `[1,3]`.
-- **1-indexed k** ??when spec says "k-th smallest with k=1 returns minimum", use `sorted(nums)[k-1]`, not `[k]`.
-- **set() removes duplicates** ??if spec says duplicates count, do NOT deduplicate before sorting.
-- **Mutating input** ??`intervals.sort()` mutates caller's list; use `sorted(intervals, ...)` to be safe.
-- **Forbidden imports** ??always check `constraints.imports_forbidden`. The harness will catch violations.
+- **Missing empty-input guard** — most common failure. ALWAYS add `if not items: return ...` at the top.
+- **Off-by-one in binary search** — use `while lo <= hi` with inclusive `hi = len(arr)-1`, never `while lo < hi`.
+- **Touching intervals** — use `<=` not `<` when merging: `[1,2]` and `[2,3]` should merge to `[1,3]`.
+- **1-indexed k** — when spec says "k-th smallest with k=1 returns minimum", use `sorted(nums)[k-1]`, not `[k]`.
+- **set() removes duplicates** — if spec says duplicates count, do NOT deduplicate before sorting.
+- **Mutating input** — `intervals.sort()` mutates caller's list; use `sorted(intervals, ...)` to be safe.
+- **Forbidden imports** — always check `constraints.imports_forbidden`. The harness will catch violations.
+- **Do not use process/background tools** to run `scripts/run.py` — use the synchronous `terminal` tool so the write completes before your turn ends.
 
 ## Verification
 
-`scripts/selftest.py` checks: SLOC with radon, import violations via AST, runs each sample_input and compares to expected. The grader re-runs `radon raw` independently ??your reported `loc` is for reference only.
-
-
+`scripts/selftest.py` checks: SLOC with radon, import violations via AST, runs each sample_input and compares to expected. The grader re-runs the same kind of checks independently — your reported `loc` and `self_test_results` are for reference only. The result file must exist, be a valid JSON object, and have `task_id` matching the input.

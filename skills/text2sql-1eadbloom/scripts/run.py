@@ -1,50 +1,53 @@
 #!/usr/bin/env python3
 """
-text2sql skill output wrapper.
-Accepts either:
-  1. argv[1] with JSON payload (normal harness call)
-  2. stdin with LLM raw output (extracts SQL automatically)
+text2sql / scripts/run.py — file-based output contract entry point (atomic write).
+
+Self-contained resolve_result_path; does NOT import aiase_contract (unavailable
+once installed under ~/.hermes/skills/).
+
+Usage:
+    python3 run.py --task_id "<id>" --sql "<SQL>" --rationale "<text>" --confidence 0.8
 """
-import json, re, sys
+import os
+import json
+import argparse
 
-def extract_sql(text):
-    # Try fenced sql block
-    m = re.search(r'```sql\s*(.*?)```', text, re.DOTALL | re.IGNORECASE)
-    if m:
-        return m.group(1).strip()
-    # Try fenced block (any)
-    m = re.search(r'```\w*\s*(SELECT.*?)```', text, re.DOTALL | re.IGNORECASE)
-    if m:
-        return m.group(1).strip()
-    # Try bare SELECT
-    m = re.search(r'(SELECT\s+.+)', text, re.DOTALL | re.IGNORECASE)
-    if m:
-        return m.group(1).strip().split('\n\n')[0]
-    return None
 
-def emit(obj):
-    sys.stdout.write("```json\n")
-    sys.stdout.write(json.dumps(obj, ensure_ascii=False, indent=2))
-    sys.stdout.write("\n```\n")
+def resolve_result_path() -> str:
+    return os.environ.get("AIASE_RESULT_PATH") or os.path.join(os.getcwd(), "aiase_result.json")
+
+
+def _clamp_confidence(v) -> float:
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, min(1.0, f))
+
 
 def main():
-    if len(sys.argv) >= 2:
-        try:
-            payload = json.loads(sys.argv[1])
-            emit(payload)
-            return
-        except json.JSONDecodeError:
-            pass
-    # Read from stdin
-    text = sys.stdin.read()
-    sql = extract_sql(text)
-    if not sql:
-        emit({"task_id": "", "sql": "", "rationale": "failed to extract SQL", "confidence": 0.0})
-        return
-    # Try to get task_id from text
-    m = re.search(r'task_id["\s:]+([a-zA-Z0-9_]+)', text)
-    task_id = m.group(1) if m else ""
-    emit({"task_id": task_id, "sql": sql, "rationale": "extracted from output", "confidence": 0.7})
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--task_id", required=True)
+    ap.add_argument("--sql", required=True)
+    ap.add_argument("--rationale", default="")
+    ap.add_argument("--confidence", type=float, default=0.5)
+    a = ap.parse_args()
+
+    result = {
+        "task_id": a.task_id,
+        "sql": a.sql,
+        "rationale": a.rationale,
+        "confidence": _clamp_confidence(a.confidence),
+    }
+
+    path = resolve_result_path()
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False)
+    os.replace(tmp, path)  # atomic write, avoids reading a half-written file
+    print(f"written ok -> {path}")
+
 
 if __name__ == "__main__":
     main()

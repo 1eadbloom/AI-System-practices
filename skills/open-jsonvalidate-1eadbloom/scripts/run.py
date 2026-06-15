@@ -1,15 +1,27 @@
 #!/usr/bin/env python3
 """
-open-jsonvalidate skill ??final output wrapper.
+open-jsonvalidate / scripts/run.py — file-based output contract entry point (atomic write).
 
-Reads JSON from argv[1] with {task_id, valid, errors, error_count, confidence};
-enforces contract shape and consistency rules; emits a single fenced JSON block.
+Self-contained resolve_result_path; does NOT import aiase_contract (unavailable
+once installed under ~/.hermes/skills/).
+
+--errors takes a JSON array string of {path, rule, message} objects.
+Consistency rule: valid=true requires errors=[]; if valid=true but errors
+is non-empty, valid is overridden to false (evidence overrides claim).
+
+Usage:
+    python3 run.py --task_id "<id>" --valid false \
+        --errors '[{"path":"/age","rule":"minimum","message":"Value -1 is less than minimum 0"}]' \
+        --confidence 1.0
 """
-
-from __future__ import annotations
-
-import json
+import os
 import sys
+import json
+import argparse
+
+
+def resolve_result_path() -> str:
+    return os.environ.get("AIASE_RESULT_PATH") or os.path.join(os.getcwd(), "aiase_result.json")
 
 
 def _clamp_confidence(v) -> float:
@@ -20,7 +32,7 @@ def _clamp_confidence(v) -> float:
     return max(0.0, min(1.0, f))
 
 
-def _sanitize_error(e: dict) -> dict | None:
+def _sanitize_error(e):
     if not isinstance(e, dict):
         return None
     return {
@@ -30,51 +42,50 @@ def _sanitize_error(e: dict) -> dict | None:
     }
 
 
-def emit_contract(obj: dict) -> int:
-    valid = bool(obj.get("valid", False))
-    raw_errors = obj.get("errors") or []
-    if not isinstance(raw_errors, list):
-        raw_errors = []
-    errors = [e for e in (_sanitize_error(x) for x in raw_errors) if e is not None]
+def _str2bool(v):
+    return str(v).strip().lower() in ("1", "true", "yes", "y")
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--task_id", required=True)
+    ap.add_argument("--valid", required=True)
+    ap.add_argument("--errors", default="[]", help="JSON array string of error objects")
+    ap.add_argument("--confidence", type=float, default=1.0)
+    a = ap.parse_args()
+
+    try:
+        raw_errors = json.loads(a.errors)
+        if not isinstance(raw_errors, list):
+            raise ValueError("errors must be a JSON array")
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"ERROR: --errors is not a valid JSON array: {e}", file=sys.stderr)
+        return 2
+
+    errors = [x for x in (_sanitize_error(e) for e in raw_errors) if x is not None]
+    valid = _str2bool(a.valid)
 
     # Enforce consistency: valid=true requires errors=[]
     if valid and errors:
         valid = False  # evidence overrides claim
 
-    out = {
-        "task_id": str(obj.get("task_id", "")),
+    result = {
+        "task_id": a.task_id,
         "valid": valid,
         "errors": errors,
         "error_count": len(errors),
-        "confidence": _clamp_confidence(obj.get("confidence", 1.0)),
+        "confidence": _clamp_confidence(a.confidence),
     }
-    sys.stdout.write("```json\n")
-    sys.stdout.write(json.dumps(out, ensure_ascii=False, indent=2))
-    sys.stdout.write("\n```\n")
+
+    path = resolve_result_path()
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False)
+    os.replace(tmp, path)  # atomic write
+    print(f"written ok -> {path}")
     return 0
 
 
-def main(argv: list[str]) -> int:
-    if len(argv) < 2:
-        return emit_contract({
-            "task_id": "", "valid": False,
-            "errors": [{"path": "/", "rule": "invocation", "message": "run.py invoked without payload"}],
-            "error_count": 1, "confidence": 0.0,
-        })
-    try:
-        payload = json.loads(argv[1])
-        if not isinstance(payload, dict):
-            raise ValueError("payload not an object")
-    except (json.JSONDecodeError, ValueError) as e:
-        return emit_contract({
-            "task_id": "", "valid": False,
-            "errors": [{"path": "/", "rule": "parse", "message": f"invalid argv JSON: {e}"}],
-            "error_count": 1, "confidence": 0.0,
-        })
-    return emit_contract(payload)
-
-
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
-
-
+    raise SystemExit(main())

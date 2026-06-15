@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
 """
-code-author skill ??final output wrapper.
+code-author / scripts/run.py — file-based output contract entry point (atomic write).
 
-Reads JSON from argv[1] with the fields needed by the contract, validates shape,
-emits a single fenced JSON block.
+Self-contained resolve_result_path; does NOT import aiase_contract (unavailable
+once installed under ~/.hermes/skills/).
+
+Usage:
+    python3 run.py --task_id "<id>" --code "<source>" --loc 12 \
+        --self_test_passed 5 --self_test_failed 0 \
+        --rationale "<text>" --confidence 0.9
 """
-
-from __future__ import annotations
-
+import os
 import json
-import sys
+import argparse
+
+
+def resolve_result_path() -> str:
+    return os.environ.get("AIASE_RESULT_PATH") or os.path.join(os.getcwd(), "aiase_result.json")
 
 
 def _clamp_confidence(v) -> float:
@@ -20,50 +27,34 @@ def _clamp_confidence(v) -> float:
     return max(0.0, min(1.0, f))
 
 
-def emit_contract(obj: dict) -> int:
-    self_test = obj.get("self_test_results") or {}
-    if not isinstance(self_test, dict):
-        self_test = {"passed": 0, "failed": 0, "_warning": "non-object coerced"}
-    self_test.setdefault("passed", 0)
-    self_test.setdefault("failed", 0)
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--task_id", required=True)
+    ap.add_argument("--code", required=True)
+    ap.add_argument("--loc", type=int, default=0)
+    ap.add_argument("--self_test_passed", type=int, default=0)
+    ap.add_argument("--self_test_failed", type=int, default=0)
+    ap.add_argument("--rationale", default="")
+    ap.add_argument("--confidence", type=float, default=0.5)
+    a = ap.parse_args()
 
-    out = {
-        "task_id": str(obj.get("task_id", "")),
-        "code": str(obj.get("code", "")),
-        "loc": int(obj.get("loc", 0)) if str(obj.get("loc", "0")).lstrip("-").isdigit() else 0,
-        "self_test_results": self_test,
-        "rationale": str(obj.get("rationale", "")),
-        "confidence": _clamp_confidence(obj.get("confidence", 0.5)),
+    result = {
+        "task_id": a.task_id,
+        "code": a.code,
+        "loc": a.loc,
+        "self_test_results": {"passed": a.self_test_passed, "failed": a.self_test_failed},
+        "rationale": a.rationale,
+        "confidence": _clamp_confidence(a.confidence),
     }
-    sys.stdout.write("```json\n")
-    sys.stdout.write(json.dumps(out, ensure_ascii=False, indent=2))
-    sys.stdout.write("\n```\n")
-    return 0
 
-
-def main(argv: list[str]) -> int:
-    if len(argv) < 2:
-        return emit_contract({
-            "task_id": "", "code": "", "loc": 0,
-            "self_test_results": {"passed": 0, "failed": 0},
-            "rationale": "run.py invoked without argv payload",
-            "confidence": 0.0,
-        })
-    try:
-        payload = json.loads(argv[1])
-        if not isinstance(payload, dict):
-            raise ValueError("payload not an object")
-    except (json.JSONDecodeError, ValueError) as e:
-        return emit_contract({
-            "task_id": "", "code": "", "loc": 0,
-            "self_test_results": {"passed": 0, "failed": 0},
-            "rationale": f"invalid argv JSON: {e}",
-            "confidence": 0.0,
-        })
-    return emit_contract(payload)
+    path = resolve_result_path()
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False)
+    os.replace(tmp, path)  # atomic write
+    print(f"written ok -> {path}")
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
-
-
+    main()

@@ -1,14 +1,15 @@
 ---
 name: open-jsonvalidate-1eadbloom
-description: Validate a JSON object against a JSON Schema (draft-07 subset) and emit a structured validation report with per-error path annotations.
-version: 1.0.0
+description: Validate a JSON object against a JSON Schema (draft-07 subset) and write a structured validation report via scripts/run.py (file-based output contract). AIASE 2026 Open Track.
+version: 2.0.0
 metadata:
   hermes:
     tags: [json, schema, validation, aiase-2026]
     category: data
+    requires_toolsets: [terminal]
 ---
 
-# JSON Schema Validator Skill (Open Track)
+# JSON Schema Validator Skill (Open Track, file-based output contract)
 
 ## When to Use
 
@@ -23,22 +24,26 @@ Trigger example:
 
 1. **Parse** the input JSON. Extract `task_id`, `schema`, `instance`.
 
-2. **Run the deterministic validator** by executing:
+2. **Run the deterministic validator** using the `terminal` tool with an **absolute path** (`<skill_dir>` is given to you by Hermes via `[Skill directory: ...]`):
    ```
-   python scripts/validate.py '{"schema":<schema>,"instance":<instance>}'
+   python3 <skill_dir>/scripts/validate.py '{"schema":<schema>,"instance":<instance>}'
    ```
    The script returns a fenced JSON block with:
    - `valid`: bool
    - `errors`: list of error objects (empty if valid)
    Each error object has `path` (JSON pointer string), `rule` (which keyword failed), `message` (human-readable).
 
-3. **Review** the validator output. The deterministic script handles all validation logic ??do NOT second-guess its `valid` result or add/remove errors. Your job is to format the final contract output.
+3. **Review** the validator output. The deterministic script handles all validation logic — do NOT second-guess its `valid` result or add/remove errors. Your job is to pass these results through to `run.py`.
 
-4. **Emit** the contract by running:
+4. **Write the result file.** Use the `terminal` tool (NOT a process/background tool) and run, with an **absolute path**:
    ```
-   python scripts/run.py '{"task_id":"<task_id>","valid":<true/false>,"errors":[<errors>],"error_count":<n>,"confidence":1.0}'
+   python3 <skill_dir>/scripts/run.py \
+     --task_id "<task_id>" \
+     --valid <true|false> \
+     --errors '<JSON array from validate.py, or [] if valid>' \
+     --confidence 1.0
    ```
-   Output the resulting fenced JSON block **unchanged as your final response**. Do not add text after it.
+   This writes the result to the file given by the `AIASE_RESULT_PATH` environment variable (or `./aiase_result.json` if unset). **You do not need to print or repeat the JSON in the chat message** — the grader reads the result file, not your reply.
 
 ## Supported JSON Schema keywords (draft-07 subset)
 
@@ -56,7 +61,7 @@ The validator supports:
 - `pattern`: string must match this regex
 - `allOf`, `anyOf`, `oneOf`: logical combinators
 
-## Output Contract
+## Output Contract (result file)
 
 ```json
 {
@@ -77,7 +82,7 @@ The validator supports:
 - `valid`: true iff the instance fully conforms to the schema.
 - `errors`: empty array when valid=true; list of error objects otherwise.
 - `error_count`: must equal `len(errors)`.
-- `confidence`: always 1.0 (deterministic result ??no LLM guessing).
+- `confidence`: always 1.0 (deterministic result — no LLM guessing).
 
 ## Pitfalls
 
@@ -85,11 +90,10 @@ The validator supports:
 - `error_count` must match `len(errors)` exactly.
 - `valid=true` requires `errors=[]` and `error_count=0`.
 - `task_id` must match input exactly.
-
-
+- **Do not use process/background tools** to run `scripts/run.py` — use the synchronous `terminal` tool so the write completes before your turn ends.
 
 ## Verification
 
 `scripts/validate.py` is a fully deterministic JSON Schema draft-07 subset validator (pure stdlib). Given the same `schema` and `instance`, it always produces the same `valid` boolean and `errors` list. The grader compares `valid`, `error_count`, and each error's `path`+`rule` against ground truth.
 
-`scripts/run.py` enforces the output contract shape: `valid=true` requires `errors=[]` and `error_count=0`; if `valid=true` but `errors` is non-empty, `run.py` overrides `valid` to `false`. The last fenced JSON block in stdout is the grader's input.
+`scripts/run.py` enforces the output contract shape: `valid=true` requires `errors=[]` and `error_count=0`; if `valid=true` but `errors` is non-empty, `run.py` overrides `valid` to `false`. The result file must exist and be a valid JSON object with `task_id` matching the input.
