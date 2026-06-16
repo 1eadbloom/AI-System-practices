@@ -24,7 +24,7 @@ Trigger example:
 
 1. **Parse** the input JSON. Extract `task_id`, `schema`, `instance`.
 
-2. **Run the deterministic validator** using the `terminal` tool with an **absolute path** (`<skill_dir>` is given to you by Hermes via `[Skill directory: ...]`):
+2. **Run the deterministic validator** using the `terminal` tool with an **absolute path**:(`<skill_dir>` is given to you by Hermes via `[Skill directory: ...]`):
    ```
    python3 <skill_dir>/scripts/validate.py '{"schema":<schema>,"instance":<instance>}'
    ```
@@ -33,17 +33,21 @@ Trigger example:
    - `errors`: list of error objects (empty if valid)
    Each error object has `path` (JSON pointer string), `rule` (which keyword failed), `message` (human-readable).
 
-3. **Review** the validator output. The deterministic script handles all validation logic — do NOT second-guess its `valid` result or add/remove errors. Your job is to pass these results through to `run.py`.
+3. **⚠️ CRITICAL — copy the validator's output verbatim.** Read the `valid` field and `errors` array EXACTLY as printed by `validate.py`. Do NOT recompute, re-judge, or override these values based on your own reading of the schema — even if your intuition disagrees. The validator is the deterministic ground truth; your own judgment is not. If `validate.py` says `valid: false`, you MUST pass `--valid false` to `run.py`, with no exceptions.
 
-4. **Write the result file.** Use the `terminal` tool (NOT a process/background tool) and run, with an **absolute path**:
-   ```
-   python3 <skill_dir>/scripts/run.py \
-     --task_id "<task_id>" \
-     --valid <true|false> \
-     --errors '<JSON array from validate.py, or [] if valid>' \
-     --confidence 1.0
-   ```
-   This writes the result to the file given by the `AIASE_RESULT_PATH` environment variable (or `./aiase_result.json` if unset). **You do not need to print or repeat the JSON in the chat message** — the grader reads the result file, not your reply.
+4. **Write the result file.** Use the `terminal` tool and run, with an **absolute path**, using the EXACT `valid` and `errors` values from step 2's output:
+```
+python3 <skill_dir>/scripts/run.py 
+
+--task_id "<task_id>" 
+
+--valid <exact value from validate.py> 
+
+--errors '<exact errors array from validate.py, or [] if valid>' 
+
+--confidence 1.0   
+```
+This writes the result to the file given by the `AIASE_RESULT_PATH` environment variable (or `./aiase_result.json` if unset). **You do not need to print or repeat the JSON in the chat message** — the grader reads the result file, not your reply.
 
 ## Supported JSON Schema keywords (draft-07 subset)
 
