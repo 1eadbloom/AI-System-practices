@@ -125,3 +125,8 @@
 * `skills/text2sql-1eadbloom/scripts/extract\\\_schema.py`：自行撰寫，純 stdlib（`re` + `json`），對 21 個 dev set DDL 全數驗證通過（21/21）。
 * AI coding assistant（Claude）：用於草稿生成、debug 協助、指令建議。所有最終提交內容由作者審閱、測試並驗證。
 
+
+
+### Additional Improvements
+- Open Track: anyOf/oneOf now report closest-branch diagnostics while preserving grading fields.
+- Bug Hunter: expanded edge_inputs coverage for sorting, dict/frequency, recursion, and tree-like tasks.

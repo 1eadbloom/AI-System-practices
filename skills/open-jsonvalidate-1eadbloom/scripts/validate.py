@@ -156,12 +156,18 @@ def validate(schema: Any, instance: Any, path: str = "") -> list[dict]:
     if "anyOf" in schema:
         sub_results = [validate(sub, instance, path) for sub in schema["anyOf"]]
         if not any(not r for r in sub_results):
-            err("anyOf", "Value does not satisfy any of the anyOf sub-schemas")
+            closest_idx = min(range(len(sub_results)), key=lambda i: len(sub_results[i]))
+            err("anyOf", f"Failed all anyOf branches. Closest branch={closest_idx}, errors={len(sub_results[closest_idx])}")
 
     if "oneOf" in schema:
-        matching = [i for i, sub in enumerate(schema["oneOf"]) if not validate(sub, instance, path)]
+        branch_results = [validate(sub, instance, path) for sub in schema["oneOf"]]
+        matching = [i for i, r in enumerate(branch_results) if not r]
         if len(matching) != 1:
-            err("oneOf", f"Value must satisfy exactly one of oneOf sub-schemas; matched {len(matching)}")
+            if len(matching) == 0:
+                closest_idx = min(range(len(branch_results)), key=lambda i: len(branch_results[i]))
+                err("oneOf", f"Expected exactly one branch. Matched none. Closest branch={closest_idx}")
+            else:
+                err("oneOf", f"Expected exactly one branch. Matched branches={matching}")
 
     # --- not ---
     if "not" in schema:
