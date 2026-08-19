@@ -1,0 +1,45 @@
+# source_hash: eb26d5b56e20c348d7684b7d812f2ed48ecfa10667bc0b6df98a126cad7dd4da
+# Model Context Protocol (MCP): Overview and Architecture
+
+The Model Context Protocol (MCP) is an open protocol, originally introduced by Anthropic, that standardizes how AI applications connect to external data sources and tools. Before MCP, every AI application that wanted to integrate with, say, a file system, a database, or a SaaS product had to implement a bespoke integration. MCP defines a common client-server interface so that a single "MCP server" implementation for a given tool or data source can be reused by any MCP-compatible AI application, rather than being rewritten per application.
+
+## Core architecture: hosts, clients, and servers
+
+MCP defines three roles:
+
+- **Host**: the user-facing AI application — a chat app, an IDE, a CLI agent — that wants to use external capabilities. The host embeds one or more MCP clients.
+- **Client**: a component, usually a library embedded inside the host, that maintains a 1:1 connection to a single MCP server and speaks the MCP protocol on the host's behalf.
+- **Server**: a lightweight program that exposes a specific set of capabilities (tools, data, prompts) over MCP. A server might wrap a database, a SaaS API, a local filesystem, or a piece of business logic.
+
+A single host can connect to many servers simultaneously (e.g., one for GitHub, one for a calendar, one for local files), each through its own client connection, and the host is responsible for aggregating capabilities across all connected servers and presenting them coherently to the underlying model.
+
+## Transport layer
+
+MCP separates the protocol's message format from how those messages are physically transmitted. Two transports are most common:
+
+- **stdio**: the server runs as a local subprocess, and messages are exchanged over its standard input/output streams. This is the simplest setup for local tools (e.g., a server that reads the local filesystem) since no network configuration is needed.
+- **Streamable HTTP**: the server runs as a network-accessible service, and the client communicates over HTTP, with support for server-initiated streaming. This is the appropriate choice for remote, multi-tenant, or cloud-hosted servers.
+
+An earlier transport, HTTP+SSE (Server-Sent Events), has been superseded by Streamable HTTP in current versions of the spec, though some servers in the wild still implement the older variant for backward compatibility.
+
+## Message format
+
+MCP messages are JSON-RPC 2.0 — the same lightweight remote-procedure-call format used by the Language Server Protocol (LSP), which MCP's design deliberately echoes. Every request has a method name and parameters; every response is correlated to its request by an ID and contains either a result or an error object.
+
+## The three primitives servers expose
+
+A server can expose any combination of three capability types:
+
+1. **Tools** — functions the model can invoke, with a name, a description, and a JSON Schema describing expected arguments. This is the primitive most directly comparable to "function calling" in a typical LLM API. Critically, in MCP, tools are *model-controlled*: the host's LLM decides, based on the tool's description, whether and when to call it.
+2. **Resources** — addressable pieces of data (a file, a database row, an API response) that the host application can read and feed into context, conceptually similar to a GET endpoint. Resources are typically *application-controlled* — the host application, not the model, decides which resources to attach to a given request, often based on direct user action like picking a file from a list.
+3. **Prompts** — reusable, parameterized prompt templates that a server can expose, often surfaced in host UIs as a slash command or quick-action a user can explicitly select. Prompts are *user-controlled* in the same sense as resources.
+
+This three-way control split (model-controlled tools, application-controlled resources, user-controlled prompts) is a deliberate design choice in MCP intended to keep the model from being given access to arbitrary data it wasn't meant to read, while still letting it autonomously decide when to take action via tools.
+
+## Capability negotiation
+
+When a client first connects to a server, both sides perform a handshake (`initialize` request/response) declaring which protocol version they support and which of the optional capabilities (tools, resources, prompts, plus secondary features like sampling or notifications) each side implements. This lets the protocol evolve over time without breaking older servers or clients — a client can simply skip using a capability the server didn't declare.
+
+## Why this matters for agent builders
+
+MCP's value proposition is decoupling: an agent framework (like LangGraph) does not need bespoke code for every external system it might want to use. Instead, the framework needs one generic "MCP client" integration, and then any of the rapidly growing ecosystem of community and vendor-built MCP servers becomes usable by that agent with no additional integration work.

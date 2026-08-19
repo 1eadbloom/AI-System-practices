@@ -1,0 +1,55 @@
+# source_hash: 424ba634688ffd961fe5a35359c64830ceb08da316b0f5aa740bda6eb466fe81
+# LangGraph Persistence and Checkpointing
+
+One of LangGraph's most distinguishing features compared to a plain LangChain chain is built-in persistence. A "checkpointer" snapshots the graph's state at the boundary of every super-step, which gives applications memory across separate invocations, the ability to resume after a crash, and the building blocks for human-in-the-loop workflows.
+
+## Threads
+
+Persistence in LangGraph is organized around the concept of a "thread," identified by a `thread_id` string that you pass inside the `config` argument of `.invoke()` or `.stream()`:
+
+```python
+config = {"configurable": {"thread_id": "user-123-session-1"}}
+graph.invoke({"messages": [HumanMessage("hello")]}, config=config)
+```
+
+Every checkpoint written during that call is associated with this thread. The next time you invoke the graph with the same `thread_id`, LangGraph automatically loads the latest checkpoint for that thread and resumes from there, rather than starting from a blank state. This is what gives a LangGraph-based chatbot multi-turn memory without you having to manually serialize and pass conversation history on every call.
+
+## Checkpointer backends
+
+LangGraph ships with several checkpointer implementations behind a common interface:
+
+- `InMemorySaver` (formerly `MemorySaver`) — keeps checkpoints in process memory. Useful for local development and tests, but state is lost when the process exits.
+- `SqliteSaver` — persists checkpoints to a local SQLite file. A reasonable default for small single-machine deployments.
+- `PostgresSaver` — persists checkpoints to a PostgreSQL database, suitable for production deployments where multiple processes or machines need to share state.
+
+You attach a checkpointer at compile time:
+
+```python
+from langgraph.checkpoint.memory import InMemorySaver
+
+checkpointer = InMemorySaver()
+graph = builder.compile(checkpointer=checkpointer)
+```
+
+## Checkpoints versus state updates
+
+A checkpoint is taken after every super-step, not in the middle of a node's execution. This matters for resumability: if a node is interrupted partway through (for example, due to a process crash or an explicit `interrupt()` call), and the graph is later resumed, the *entire node function re-runs from its start*, not from the line where it stopped. Any side effects inside that node (writing to a database, calling an external API) should therefore be designed to be safely repeatable — typically by using idempotency keys, upsert semantics, or a read-before-write check before performing the side effect.
+
+## Time travel and the state history
+
+Because LangGraph stores every checkpoint rather than overwriting the previous one, an application can inspect or even "rewind" history. `graph.get_state_history(config)` returns an iterator over all past checkpoints for a thread, each tagged with a `checkpoint_id`. Passing a specific `checkpoint_id` back into `config["configurable"]` and invoking the graph again will resume execution from that historical point rather than the most recent one — a feature sometimes called "time travel," useful for debugging or for letting a user roll back an agent's actions and try a different path.
+
+## Human-in-the-loop with interrupt()
+
+The `interrupt()` function, called from inside a node, pauses graph execution and surfaces a payload back to the caller (e.g., a web server) without losing any state. The calling code can then present that payload to a human reviewer, collect a decision, and resume the graph by invoking it again with a special `Command(resume= )` object. Internally this relies on the same checkpoint-and-resume mechanism described above, which is why human-in-the-loop patterns in LangGraph require a checkpointer to be configured — without one, there is nothing to resume from.
+
+## Idempotency and determinism rules in more depth
+
+LangGraph distinguishes two situations when a thread is resumed:
+
+1. **Resuming a node from the start** (the common case after most pauses) — only the contract "re-running this code must not corrupt state if executed twice" applies.
+2. **Resuming in the middle of a node that used the Functional API's `task` decorator** — here, completed task results are restored from the checkpointer rather than recomputed, so the node does not literally start from scratch. However, this means that changing the order in which tasks or `interrupt()` calls happen in your code, between the original run and the resumed run, can cause LangGraph to hand back the wrong cached value to the wrong call site. As a practical rule: do not change the code of a node that contains tasks or interrupts while a thread is paused inside it.
+
+## Why this matters for production agents
+
+Long-running agents (multi-day workflows, agents waiting on asynchronous human approval, or agents that need to survive a server restart) are impractical to build with a stateless request/response pattern. LangGraph's checkpointing turns "agent state" into a first-class, queryable, resumable object rather than something that has to live precariously in a single process's memory.
