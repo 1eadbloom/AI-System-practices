@@ -1,0 +1,68 @@
+# Building AI Agent Backends with FastAPI
+
+FastAPI has become a common choice for serving LLM-powered agents (including LangGraph graphs) over HTTP, largely because its async support, streaming response capabilities, and automatic validation map cleanly onto the needs of agent APIs: long-running calls, token-by-token streaming, and structured request/response schemas.
+
+## Streaming responses
+
+LLM responses and agent execution traces are naturally incremental, so `StreamingResponse` is the standard tool for sending data to a client as it becomes available, rather than waiting for the entire generation to finish:
+
+```python
+from fastapi.responses import StreamingResponse
+
+async def event_generator(graph, input_state, config):
+    async for chunk in graph.astream(input_state, config, stream_mode="messages"):
+        yield f"data: {json.dumps(chunk)}\n\n"
+
+@app.post("/chat")
+async def chat(request: ChatRequest):
+    return StreamingResponse(
+        event_generator(graph, request.to_state(), request.config),
+        media_type="text/event-stream",
+    )
+```
+
+Using `media_type="text/event-stream"` with the `data: ...\n\n` framing shown above implements Server-Sent Events (SSE), a simple, widely-supported standard for one-directional server-to-client streaming over a regular HTTP connection, which most frontend chat UI libraries (and browsers' native `EventSource` API) already know how to consume.
+
+## Request/response schemas for agent endpoints
+
+Pydantic models double as a clean way to define the contract for what a chat or agent endpoint accepts and returns:
+
+```python
+from pydantic import BaseModel
+
+class ChatRequest(BaseModel):
+    thread_id: str
+    message: str
+
+class ChatResponse(BaseModel):
+    thread_id: str
+    reply: str
+    tool_calls: list[dict] = []
+
+@app.post("/chat-sync", response_model=ChatResponse)
+async def chat_sync(request: ChatRequest):
+    result = await graph.ainvoke(
+        {"messages": [("user", request.message)]},
+        config={"configurable": {"thread_id": request.thread_id}},
+    )
+    return ChatResponse(
+        thread_id=request.thread_id,
+        reply=result["messages"][-1].content,
+    )
+```
+
+## Mapping LangGraph threads onto FastAPI sessions
+
+Because a LangGraph checkpointer persists state per `thread_id`, a FastAPI backend typically lets the client supply (or receives back, on first contact) a `thread_id` that it includes on every subsequent request to the same conversation — this `thread_id` is essentially the session identifier for that conversation, and the FastAPI layer's job is mostly translating between "whatever session/auth scheme the frontend uses" and "the `thread_id` LangGraph expects in its `config`," rather than re-implementing conversation memory itself, since LangGraph's checkpointer already owns that responsibility.
+
+## Background execution for long-running agent runs
+
+For agent tasks that may run far longer than a typical HTTP request timeout (multi-minute research tasks, for example), a common pattern is to return immediately with a task ID after kicking off the agent run via `BackgroundTasks` or a separate task queue, and expose a separate polling endpoint (or a websocket/SSE connection) the client can use to check status or stream results, rather than holding one HTTP request open for the entire duration — this also makes the system more resilient to a client disconnecting partway through, since the agent run continues independent of any specific request/response cycle.
+
+## Handling human-in-the-loop interrupts over HTTP
+
+When a LangGraph graph calls `interrupt()`, the FastAPI endpoint that's streaming or invoking that graph needs to detect the interrupt payload in the result, return it to the client as a distinct "waiting for input" event (rather than treating it as a normal message), and expose a separate endpoint (or accept a different request shape on the same endpoint) for the client to submit the human's decision, which the backend then forwards into the graph as a `Command(resume=...)` call on the same `thread_id`. Designing this contract clearly — distinguishing "here's a normal assistant message" from "here's a pending approval request" in the response schema — is one of the more important design decisions when wiring a human-in-the-loop LangGraph agent up to a real frontend.
+
+## Validating tool-call-shaped data
+
+When an agent's tool definitions or MCP tool schemas need to be exposed to a frontend (for example, to render a custom UI for a specific tool call), Pydantic models again provide a natural way to validate and document those shapes, and FastAPI's automatic OpenAPI generation means a frontend team can use the same `/docs` page to understand both your conventional CRUD endpoints and your agent-specific endpoints, in one consistent place.

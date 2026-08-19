@@ -1,0 +1,63 @@
+# source_hash: 5e5f370ae856ac2e19b8b26779bda9cb4e2438c5bb806715553e77d5e2ba6060
+# LangGraph Tool Calling and the ReAct Pattern
+
+The most common single-agent pattern built on LangGraph is "ReAct" (Reason + Act): an LLM alternates between reasoning about what to do and calling tools, until it decides it has enough information to answer.
+
+## The basic ReAct loop as a graph
+
+A minimal ReAct agent is a two-node cycle:
+
+1. An `agent` node calls the LLM with the current message history plus a list of available tools (bound via the model's native tool-calling/function-calling interface). The LLM either replies with a final answer or with one or more tool calls.
+2. A conditional edge inspects the LLM's response. If it contains tool calls, route to a `tools` node; otherwise route to `END`.
+3. The `tools` node executes whichever tool(s) the LLM requested, appends the tool results as messages, and routes back to `agent`.
+
+```python
+from langgraph.graph import StateGraph, START, END
+from langgraph.prebuilt import ToolNode
+
+builder = StateGraph(State)
+builder.add_node("agent", call_model)
+builder.add_node("tools", ToolNode(tools))
+builder.add_edge(START, "agent")
+builder.add_conditional_edges("agent", should_continue, {"continue": "tools", "end": END})
+builder.add_edge("tools", "agent")
+graph = builder.compile()
+```
+
+`ToolNode` is a prebuilt node that LangGraph ships specifically for this pattern: given a list of tool functions, it inspects the last AI message in state for tool calls, executes the matching Python functions with the arguments the model provided, and returns the results as `ToolMessage` objects appended to the message list.
+
+## create_react_agent prebuilt
+
+For the common case, LangGraph provides a `create_react_agent` helper in `langgraph.prebuilt` that builds the entire two-node loop above for you, given a model and a list of tools. This is the fastest way to get a working tool-using agent and is often the right starting point before reaching for a fully custom graph.
+
+```python
+from langgraph.prebuilt import create_react_agent
+
+agent = create_react_agent(model, tools=[search_tool, calculator_tool])
+result = agent.invoke({"messages": [("user", "What's 17% of 850?")]})
+```
+
+## Defining tools
+
+Tools are ordinary Python functions decorated with `@tool` from `langchain_core.tools`, or any callable with a docstring and type-annotated arguments — the docstring and signature are what the LLM sees as the tool's description and schema, so writing clear, specific docstrings measurably improves how reliably the model chooses the right tool and the right arguments.
+
+```python
+from langchain_core.tools import tool
+
+@tool
+def get_weather(city: str) -> str:
+ """Get the current weather for a given city name."""
+ ...
+```
+
+## Parallel tool calls
+
+Modern tool-calling models can return multiple tool calls in a single turn (e.g., "check the weather in Tokyo and in Paris" in one response). `ToolNode` executes all of them and returns all results, which the next `agent` call sees together — this is generally more efficient than forcing the model to make calls one at a time across multiple round trips.
+
+## Limiting iterations and avoiding infinite loops
+
+Because the ReAct loop is a cycle, a misbehaving model could in principle call tools indefinitely. Common safeguards include tracking a step counter in state and routing to `END` (or to a "give up and explain" node) once a maximum number of iterations is reached, and using LangGraph's `recursion_limit` configuration option, which raises an error if the graph exceeds a configured number of super-steps in a single invocation.
+
+## Structured output after tool use
+
+A frequent requirement is that the agent's *final* answer (after it's done using tools) conform to a specific schema, e.g., a JSON object with particular fields, rather than free text. A common pattern is to add one more node after the ReAct loop terminates that makes a final, tools-disabled LLM call with a structured-output/JSON-mode configuration, using the accumulated message history as context — this keeps tool-calling and final-answer-formatting as separate concerns rather than asking one prompt to do both simultaneously.

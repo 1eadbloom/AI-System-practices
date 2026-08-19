@@ -1,0 +1,51 @@
+# FastAPI Async and Concurrency Model
+
+FastAPI is built on ASGI (Asynchronous Server Gateway Interface) via Starlette, which means it natively supports `async def` path operations and can handle many concurrent requests efficiently within a single worker process — but understanding when to use `async def` versus a regular `def` function matters for getting good performance.
+
+## async def vs def path operations
+
+```python
+@app.get("/fast-io")
+async def read_with_async_io():
+    result = await some_async_db_call()
+    return result
+
+@app.get("/sync-cpu")
+def read_with_sync_work():
+    result = some_blocking_library_call()
+    return result
+```
+
+If a path operation is declared `async def`, FastAPI runs it directly on the main event loop. This is the right choice when everything inside the function is genuinely non-blocking — i.e., every I/O call (database queries, HTTP requests to other services, file access) uses an async-compatible library and is properly `await`-ed. If you put a *blocking* call inside an `async def` function (for example, calling a synchronous database driver without awaiting anything), you block the entire event loop for every other concurrent request being served by that worker, which is far worse for overall throughput than just using a regular function.
+
+If a path operation is declared as a plain `def` (no `async`), FastAPI automatically runs it in a separate thread from an external thread pool, rather than on the event loop directly. This means blocking, synchronous code (a traditional ORM call, a CPU-bound computation, a synchronous third-party SDK) doesn't stall other requests — it's just isolated in its own thread.
+
+## The practical rule of thumb
+
+Use `async def` when your endpoint's I/O is done through async-native libraries (`httpx.AsyncClient`, an async database driver like `asyncpg` or SQLAlchemy's async engine, async Redis clients, etc.). Use a plain `def` when you're calling synchronous, blocking libraries and don't want to deal with async wrappers — FastAPI's automatic thread-pool offloading handles the concurrency concern for you in that case. The one case to actively avoid is `async def` wrapping genuinely blocking calls with no `await`, since that defeats the purpose of using `async def` at all and actively hurts concurrency.
+
+## Dependencies follow the same rule
+
+Dependencies declared with `Depends` can independently be `async def` or plain `def`, following the exact same logic as path operations — a synchronous dependency function used alongside an async path operation (or vice versa) works correctly; FastAPI handles invoking each one appropriately.
+
+## Background tasks
+
+For work that should happen after a response is already sent to the client — e.g., sending a confirmation email after a signup endpoint returns — FastAPI provides `BackgroundTasks`:
+
+```python
+from fastapi import BackgroundTasks
+
+def send_email(email: str):
+    ...  # actual email-sending logic
+
+@app.post("/signup")
+def signup(email: str, background_tasks: BackgroundTasks):
+    background_tasks.add_task(send_email, email)
+    return {"message": "Signup received"}
+```
+
+The response is returned to the client immediately, and `send_email` runs afterward within the same process. This is appropriate for lightweight, best-effort work; for anything that needs reliability guarantees (retries, persistence if the process crashes), a proper task queue (like Celery or an external job system) is more appropriate than `BackgroundTasks`, which has no persistence or retry mechanism of its own.
+
+## Concurrency versus parallelism
+
+It's worth being precise about what async buys you: a single Python process running an asyncio event loop achieves *concurrency* (interleaving many I/O-bound tasks efficiently within one process, one CPU core) but not *parallelism* (using multiple CPU cores simultaneously for CPU-bound work). For genuinely CPU-bound workloads (heavy computation, not I/O waiting), running multiple worker processes (e.g., via Uvicorn's `--workers` flag, or behind Gunicorn) is what achieves actual parallel execution across cores — async alone does not parallelize CPU-bound code, it only avoids blocking on I/O wait time.

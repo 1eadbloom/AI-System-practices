@@ -1,0 +1,33 @@
+# MCP FAQ and Common Pitfalls
+
+## "Is MCP the same as function calling / tool use?"
+
+Not exactly — MCP's tools primitive *uses* the same underlying concept as a model provider's native function-calling feature, but MCP is a broader, transport-level protocol that standardizes how a client discovers and invokes tools (and resources, and prompts) across many different, independently-built servers. Native function calling is a feature of a specific model's API for describing and invoking functions within a single request; MCP is a protocol for connecting an application to external capability providers that may live in completely separate processes, machines, or organizations.
+
+## "Why do I need a separate Resources primitive — can't tools just return data?"
+
+Technically a tool can return arbitrary data, but Resources exist specifically to support the "human picks something explicitly" UX without involving the model's decision-making at all. If you only ever use tools, the model has to decide to call a "get_file_contents" tool before a user-selected file's content can enter context — Resources let a host application attach that content directly to the conversation in response to direct user action (like a file picker), without the model needing to ask for it or even being aware a tool exists for it.
+
+## "My server's tools don't show up in the host application."
+
+The most common causes are: the server failed the `initialize()` handshake (check that the declared protocol version is one the client supports); the server didn't actually register the capability (forgot the `@mcp.tool()` decorator, or the function has a syntax/import error that prevents the server process from starting cleanly); or, for remote servers, an authentication failure that the host is silently treating as "no tools available" rather than surfacing a clear auth error. Running the server through the MCP Inspector first isolates whether the problem is in the server itself or in the host's connection to it.
+
+## "Should I use stdio or Streamable HTTP for my server?"
+
+Use stdio if the server only ever needs to run locally as a subprocess of the host (e.g., a server that reads the local filesystem, where running remotely wouldn't even make sense). Use Streamable HTTP if the server needs to be reachable independent of any specific host process — shared across multiple users, deployed once centrally, or accessed from a host that itself runs remotely (e.g., a cloud-hosted chat application) rather than on the same machine as the server.
+
+## "Can an MCP server call another MCP server?"
+
+Yes — there's nothing preventing a server from also acting as a client to other servers internally (sometimes referred to as a "proxy" or "aggregator" server), composing several underlying capability sources behind one unified server interface. This is a useful pattern for presenting a simplified, curated subset of a larger or more complex underlying system as a small number of well-described tools, rather than exposing every low-level capability directly.
+
+## "What stops a malicious MCP server from doing something harmful?"
+
+The host application (and the human using it) is the actual trust boundary. Best practice is for hosts to require explicit user confirmation before invoking tools with side effects (especially destructive ones, like deleting data or sending communications on the user's behalf), to treat data returned from tools/resources as untrusted content rather than as trusted instructions, and for users to only connect to servers from sources they trust — similar in spirit to only installing browser extensions or CLI packages from trustworthy publishers.
+
+## "Do I need to handle reconnection logic myself?"
+
+For stdio servers, since the server is a subprocess spawned and owned by the client, a crashed server process generally needs to be relaunched by the client/host, which most SDK-level client implementations handle. For remote Streamable HTTP servers, ordinary network reliability concerns apply (timeouts, retries, exponential backoff), the same as any other client talking to a remote HTTP API.
+
+## "Why does my tool call return validation errors even though my Python function works fine when called directly?"
+
+This usually means the function's type hints don't match what the model actually sent. FastMCP generates the JSON Schema directly from your function's type annotations, so if a parameter is annotated as `int` but the model is realistically going to send something that should be a string (e.g., a date in `YYYY-MM-DD` format), declare it as `str` and parse/validate it yourself inside the function, rather than relying on the schema to coerce types in ways it wasn't designed to.
