@@ -4,6 +4,7 @@ CryptoTracker v2.0 - API Client
 v2.0 無介面變更，完全複用 v1.0 邏輯。
 """
 
+import os
 import time
 from typing import Optional
 
@@ -23,12 +24,18 @@ class CryptoAPIClient:
     REQUEST_TIMEOUT = 15
     RATE_LIMIT_DELAY = 1.5
 
-    def __init__(self):
+    def __init__(self, api_key: str = None):
         self.session = requests.Session()
-        self.session.headers.update({
+        headers = {
             "Accept": "application/json",
             "User-Agent": "CryptoTracker/2.0",
-        })
+        }
+        # CoinGecko 免費 Demo API Key（可選，但建議設定以避免 429 限速）
+        # 設定方式：環境變數 COINGECKO_API_KEY 或傳入 api_key 參數
+        key = api_key or os.environ.get("COINGECKO_API_KEY", "")
+        if key:
+            headers["x-cg-demo-api-key"] = key
+        self.session.headers.update(headers)
         self._last_request_time = 0.0
 
     def _rate_limit(self) -> None:
