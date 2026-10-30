@@ -94,7 +94,10 @@ def hybrid_search(
     embed_rank = {doc_id: i + 1 for i, (doc_id, _) in enumerate(embed_scores)}
 
     # --- RRF fusion ---
-    all_ids = {d["id"] for d in docs}
+    # before
+    # all_ids = {d["id"] for d in docs}
+    # after: keep corpus order so tied RRF scores are ordered deterministically
+    all_ids = [d["id"] for d in docs]
     fused = []
     for doc_id in all_ids:
         br = bm25_rank.get(doc_id, len(docs) + 1)

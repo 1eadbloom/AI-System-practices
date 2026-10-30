@@ -57,6 +57,10 @@ def main():
     ap.add_argument("--hybrid", action="store_true",
                     help="啟用 Hybrid BM25+Embedding 模式（需安裝 sentence-transformers）。"
                          "亦可用 MEMORY_HYBRID=1 環境變數觸發。")
+    ap.add_argument("--langchain", action="store_true",
+                    help="使用 LangChain 版混合檢索（BM25Retriever + FAISS + EnsembleRetriever）。")
+    ap.add_argument("--lc-bm25-only", action="store_true",
+                    help="LangChain 版但只用 BM25Retriever（用來驗證與自製 BM25 是否一致，不需嵌入模型）。")
     args = ap.parse_args()
     k = args.k
 
@@ -84,7 +88,26 @@ def main():
         capture(obs)
 
     # --- 決定要用哪個檢索函式 ---
-    if use_hybrid:
+    if args.langchain or args.lc_bm25_only:
+        import time
+        from memory.store import JsonStore
+        from memory.lc_hybrid import LCHybridIndex, default_embeddings
+
+        store = JsonStore(tmp.name)
+        all_obs = store.all()
+        docs = [{"id": o["id"], "text": " ".join([o["summary"], *o.get("tags", [])])}
+                for o in all_obs]
+        by_id = {o["id"]: o for o in all_obs}
+        t0 = time.perf_counter()
+        index = LCHybridIndex(docs, embeddings=None if args.lc_bm25_only else default_embeddings())
+        build_s = time.perf_counter() - t0
+        print(f"[LangChain] index build: {build_s:.2f}s ({len(docs)} docs)")
+
+        def _retrieve(query, k):
+            return [by_id[r["id"]] for r in index.search(query, k) if r["id"] in by_id]
+
+        mode_label = "LangChain BM25Retriever only" if args.lc_bm25_only else "LangChain Ensemble (BM25+FAISS, RRF)"
+    elif use_hybrid:
         from memory.store import JsonStore
         from memory.hybrid import hybrid_search
 

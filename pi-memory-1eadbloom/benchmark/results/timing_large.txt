@@ -1,0 +1,10 @@
+﻿corpus=corpus_large.jsonl (100 docs), queries=40, k=5, rounds=5
+
+mode                model load (s)  index build (s)    per query (ms)
+own BM25                      0.00            0.000        0.34 +/- 0.00
+LangChain BM25                0.00            0.002        0.09 +/- 0.00
+own hybrid                    9.35            0.000      103.60 +/- 1.24
+LangChain hybrid              4.76            0.124        5.35 +/- 0.23
+
+Notes: own hybrid re-encodes ALL docs on every query (no index), so its per-query cost
+grows with corpus size. LangChain builds the index once; per-query only encodes the query.

@@ -1,0 +1,30 @@
+﻿corpus=corpus_large.jsonl (100 docs), queries=40, k=5, RRF c=60, alpha=0.5
+
+variant                             Recall@5     MRR   nDCG@5
+own BM25                               0.838   0.826    0.795
+rank_bm25 (stable ties)                0.838   0.838    0.799
+embedding-only                         0.912   0.844    0.843
+V0 own hybrid (as-is, this run)        0.875   0.910    0.854
+V1 own, cached + deterministic         0.875   0.910    0.854
+V2 rank_bm25 + own fusion              0.875   0.910    0.854
+V3 LangChain ensemble                  0.850   0.892    0.834
+
+Check: V1 (numpy) vs V1a (pure-Python cosine) identical top-5 on 40/40 queries
+Info : V0 vs V1 identical top-5 on 40/40 queries (differences come from RRF tie order)
+
+V0 own hybrid across PYTHONHASHSEED=0..4:
+  seed 0: Recall 0.875  MRR 0.910  nDCG 0.854
+  seed 1: Recall 0.875  MRR 0.910  nDCG 0.854
+  seed 2: Recall 0.875  MRR 0.910  nDCG 0.854
+  seed 3: Recall 0.875  MRR 0.910  nDCG 0.854
+  seed 4: Recall 0.875  MRR 0.910  nDCG 0.854
+  recall  min 0.875  max 0.875
+  mrr     min 0.910  max 0.910
+  ndcg    min 0.854  max 0.854
+
+Latency (per query, warm; index/cache build reported separately):
+variant                                 build (s)  per query (ms)
+V0 own hybrid (re-encode all docs)          0.000          104.69
+V1a cached embeddings, py cosine            0.140            8.23
+V1  cached embeddings, numpy                0.140            4.81
+V3  LangChain ensemble                      0.101            5.03
