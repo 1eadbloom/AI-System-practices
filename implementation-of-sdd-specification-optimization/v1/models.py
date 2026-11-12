@@ -1,4 +1,3 @@
-```python
 """
 CryptoTracker v1.0 - Data Models
 定義核心資料結構，使用 dataclass 實現。

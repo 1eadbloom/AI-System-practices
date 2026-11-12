@@ -239,10 +239,11 @@ def format_alert_warnings(triggered: list[tuple[Alert, float]]) -> str:
         "├─────────────────────────────────────────────┤",
     ]
     for alert, current_price in triggered:
-        if alert.condition == "above":
-            msg = f"  {alert.coin_id.upper()} = ${current_price:,.2f} > ${alert.threshold:,.2f}"
-        else:
-            msg = f"  {alert.coin_id.upper()} = ${current_price:,.2f} < ${alert.threshold:,.2f}"
+        # 依警示自己的幣別顯示符號（例如 NT$、€），而非固定 $
+        price_str = format_currency(current_price, alert.currency)
+        threshold_str = format_currency(alert.threshold, alert.currency)
+        op = ">" if alert.condition == "above" else "<"
+        msg = f"  {alert.coin_id.upper()} = {price_str} {op} {threshold_str}"
         lines.append(f"│ 🚨 {msg.ljust(40)}│")
     lines.append("└─────────────────────────────────────────────┘")
 

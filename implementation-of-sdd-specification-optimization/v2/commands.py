@@ -61,33 +61,48 @@ class CommandHandler:
         config = self.storage.get_config()
         return config.get("default_top_num", 10)
 
-    def _check_and_display_alerts(self, known_prices: Optional[dict] = None) -> None:
+    def _check_and_display_alerts(self, known_prices: Optional[dict] = None,
+                                  known_currency: str = "usd") -> None:
         """
         檢查並顯示已觸發的價格警示（v2.0 新增）。
         此方法在每個涉及價格的指令結尾呼叫。
         若檢查過程中發生任何錯誤，靜默忽略，不影響主指令。
+
+        Args:
+            known_prices: 指令執行時已取得的價格（幣種 ID → 價格）
+            known_currency: known_prices 所使用的法幣。
+                只有幣別與警示相同時才會複用，避免拿美元價格去比對台幣閾值。
         """
         try:
             alerts = self.storage.get_all_alerts()
             if not alerts:
                 return
 
-            prices = dict(known_prices) if known_prices else {}
+            known_currency = known_currency.lower()
+            known = {k.lower(): v for k, v in (known_prices or {}).items()}
 
-            # 對尚未取得價格的幣種進行查詢
-            missing_coins = set()
+            # 依警示自己的幣別分組，每組用該幣別的價格比對
+            groups: dict[str, list] = {}
             for alert in alerts:
-                if alert.coin_id not in prices:
-                    missing_coins.add(alert.coin_id)
+                groups.setdefault(alert.currency.lower(), []).append(alert)
 
-            for coin_id in missing_coins:
-                try:
-                    data = self.api.get_price(coin_id, alert.currency if alerts else "usd")
-                    prices[coin_id] = data["price"]
-                except Exception:
-                    pass
+            triggered = []
+            for currency, group in groups.items():
+                prices = {}
+                for alert in group:
+                    coin_id = alert.coin_id
+                    if coin_id in prices:
+                        continue
+                    if currency == known_currency and coin_id in known:
+                        prices[coin_id] = known[coin_id]
+                        continue
+                    try:
+                        data = self.api.get_price(coin_id, currency)
+                        prices[coin_id] = data["price"]
+                    except Exception:
+                        pass
+                triggered.extend(check_alerts(group, prices))
 
-            triggered = check_alerts(alerts, prices)
             if triggered:
                 warning = format_alert_warnings(triggered)
                 print(warning)
@@ -138,7 +153,7 @@ class CommandHandler:
             pass
 
         # v2.0: 檢查警示
-        self._check_and_display_alerts({coin.lower(): price})
+        self._check_and_display_alerts({coin.lower(): price}, effective_currency)
 
     def cmd_top(self, num: int = None) -> None:
         """列出市值前 N 名的加密貨幣。v2.0：支援設定檔預設筆數。"""
@@ -168,7 +183,7 @@ class CommandHandler:
 
         # v2.0: 檢查警示
         known = {c.coin_id: c.current_price for c in coins}
-        self._check_and_display_alerts(known)
+        self._check_and_display_alerts(known, "usd")  # top 的價格固定為 USD
 
     def cmd_favorite_add(self, coin: str) -> None:
         """將幣種加入收藏清單。（v1.0 行為不變）"""
@@ -231,7 +246,7 @@ class CommandHandler:
         print()
 
         # v2.0: 檢查警示
-        self._check_and_display_alerts(known_prices)
+        self._check_and_display_alerts(known_prices, effective_currency)
 
     def cmd_history(self, coin: str, days: int = 7) -> None:
         """查詢指定幣種過去 N 天的價格歷史。（v1.0 行為不變）"""
@@ -261,7 +276,7 @@ class CommandHandler:
 
         # v2.0: 檢查警示
         if price_data:
-            self._check_and_display_alerts({coin.lower(): price_data[-1]["price"]})
+            self._check_and_display_alerts({coin.lower(): price_data[-1]["price"]}, "usd")  # 歷史價格固定為 USD
 
     def cmd_trend(self, coin: str, days: int = 30) -> None:
         """趨勢分析。v2.0：新增 RSI + 自然語言摘要。"""
@@ -289,7 +304,7 @@ class CommandHandler:
         print(report)
 
         # v2.0: 檢查警示
-        self._check_and_display_alerts({coin.lower(): result.current_price})
+        self._check_and_display_alerts({coin.lower(): result.current_price}, "usd")  # 趨勢分析固定為 USD
 
     def cmd_export(self, coin: str, days: int = 7, fmt: str = "csv") -> None:
         """匯出歷史資料。（v1.0 行為不變）"""
@@ -490,4 +505,4 @@ class CommandHandler:
         print()
 
         # v2.0: 檢查警示
-        self._check_and_display_alerts(known_prices)
+        self._check_and_display_alerts(known_prices, effective_currency)
